@@ -54,6 +54,8 @@ cargo test --workspace
 python scripts/bench.py
 ```
 
+El e2e espera un stack recién levantado (una segunda ejecución falla porque el WAF ya bloquea los endpoints de la primera).
+
 En compose el detector **verifica firmas** (`JWT_SECRET`, por defecto de desarrollo); las capturas de `probe/sample-traffic.ndjson` llevan tokens sin firma y se tratan como no autenticadas.
 
 Sonda eBPF real (Linux, root): `cd probe/ebpf && cargo +nightly build --release` (requiere `bpf-linker`), después
