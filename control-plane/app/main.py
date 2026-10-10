@@ -1,6 +1,9 @@
 """Control plane: catalog, ingest, drift, schemas, red team, WAF orchestration, dashboard."""
+import base64
+import hashlib
 import hmac
 import pathlib
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -13,6 +16,7 @@ from .clickhouse import ClickHouseError, get_clickhouse
 from .config import settings
 
 STATIC = pathlib.Path(__file__).parent / "static"
+HTTP_METHODS_UPPER = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE"}
 
 
 def require_key(x_api_key: str = Header(default="")) -> None:
@@ -38,9 +42,17 @@ def healthz() -> dict:
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard() -> str:
-    """Static page; it asks for the API key in the browser and calls the API with it."""
-    return (STATIC / "dashboard.html").read_text()
+def dashboard() -> HTMLResponse:
+    """Static page; it asks for the API key in the browser and calls the API with it.
+    CSP allows only the page's own inline script/style (by hash) and same-origin fetches."""
+    html = (STATIC / "dashboard.html").read_text()
+    hashes = lambda tag: " ".join(
+        "'sha256-" + base64.b64encode(hashlib.sha256(m.encode()).digest()).decode() + "'"
+        for m in re.findall(rf"<{tag}>(.*?)</{tag}>", html, re.S))
+    csp = (f"default-src 'none'; script-src {hashes('script')}; style-src {hashes('style')}; "
+           "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+    return HTMLResponse(html, headers={"Content-Security-Policy": csp, "X-Content-Type-Options": "nosniff",
+                                       "Referrer-Policy": "no-referrer"})
 
 
 @app.get("/metrics", response_class=PlainTextResponse, dependencies=auth)
@@ -56,11 +68,44 @@ def prometheus() -> str:
 @app.put("/catalog/{spec_name}", dependencies=auth)
 async def put_catalog(spec_name: str, request: Request) -> dict:
     """Upload an OpenAPI 3.x document (JSON or YAML) as the official spec `spec_name`."""
+    body = await request.body()
+    if len(body) > 4 * 1024 * 1024:
+        raise HTTPException(413, "spec too large (max 4 MiB)")
     try:
-        entries = parse_openapi(await request.body())
+        entries = parse_openapi(body)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return {"spec": spec_name, "operations": db.replace_catalog(spec_name, entries)}
+
+
+class Accept(BaseModel):
+    method: str = "*"
+    path: str
+    reason: str = ""
+
+
+@app.put("/allowlist", dependencies=auth)
+def accept_endpoint(a: Accept) -> dict:
+    """Mark an undocumented endpoint as accepted (health checks, internal tools): it stops being reported
+    as shadow, is not notified and is not blocked by the generated WAF rules."""
+    from .paths import normalize_catalog_path, templatize
+    method = a.method.upper()
+    if method != "*" and method not in HTTP_METHODS_UPPER:
+        raise HTTPException(422, "invalid method")
+    path = normalize_catalog_path(templatize(a.path))
+    db.add_accepted(method, path, a.reason)
+    return {"method": method, "path": path, "reason": a.reason}
+
+
+@app.get("/allowlist", dependencies=auth)
+def get_allowlist() -> list[dict]:
+    return [{**x, "created_at": x["created_at"].isoformat()} for x in db.list_accepted()]
+
+
+@app.delete("/allowlist", dependencies=auth)
+def delete_allowlist(path: str, method: str = "*") -> dict:
+    from .paths import normalize_catalog_path, templatize
+    return {"removed": db.remove_accepted(method.upper(), normalize_catalog_path(templatize(path)))}
 
 
 @app.get("/catalog", dependencies=auth)

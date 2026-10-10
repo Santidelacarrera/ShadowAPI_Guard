@@ -30,9 +30,9 @@ class BolaVerdict(BaseModel):
 
 class Event(BaseModel):
     ts: float | None = None  # unix seconds
-    method: str
-    path: str
-    host: str = ""
+    method: str = Field(max_length=16)
+    path: str = Field(max_length=4096)
+    host: str = Field("", max_length=255)
     status: int = Field(0, ge=0, le=65535)
     req_body: str = ""
     resp_body: str = ""

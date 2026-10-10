@@ -58,13 +58,20 @@ def compute_drift(min_hits: int = 1) -> dict:
     def documented(o: dict) -> bool:
         return any(m == o["method"] and matches(p, o["path"]) for m, p in cat_keys)
 
-    shadow = [o for o in obs if o["hits"] >= min_hits and not documented(o)]
+    accepted = db.list_accepted()
+
+    def is_accepted(o: dict) -> bool:
+        return any(a["method"] in ("*", o["method"]) and matches(a["path"], o["path"]) for a in accepted)
+
+    undocumented = [o for o in obs if o["hits"] >= min_hits and not documented(o)]
+    shadow = [o for o in undocumented if not is_accepted(o)]
     zombie = [c for c in cat if not any(o["method"] == c["method"] and matches(c["path"], o["path"]) for o in obs)]
     documented_seen = len(obs) - len([o for o in obs if not documented(o)])
     schema_drift = _schema_drift(cat)
     return {
         "summary": {"catalog": len(cat), "observed": len(obs), "shadow": len(shadow), "unused": len(zombie),
-                    "documented_seen": documented_seen, "schema_drift": len(schema_drift)},
+                    "documented_seen": documented_seen, "schema_drift": len(schema_drift),
+                    "accepted": len(undocumented) - len(shadow)},
         "shadow": [{"method": o["method"], "path": o["path"], "host": o["host"], "hits": o["hits"],
                     "first_seen": o["first_seen"].isoformat(), "last_seen": o["last_seen"].isoformat()} for o in shadow],
         "unused": [{"method": c["method"], "path": c["raw_path"]} for c in zombie],
@@ -91,4 +98,6 @@ def _schema_drift(cat: list[dict]) -> list[dict]:
 
 
 def is_documented(method: str, path: str) -> bool:
-    return any(c["method"] == method and matches(c["path"], path) for c in db.list_catalog())
+    """True when the endpoint is in the catalog or has been explicitly accepted (allow-listed)."""
+    return any(c["method"] == method and matches(c["path"], path) for c in db.list_catalog()) or \
+        any(a["method"] in ("*", method) and matches(a["path"], path) for a in db.list_accepted())

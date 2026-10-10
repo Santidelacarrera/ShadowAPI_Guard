@@ -31,6 +31,14 @@ inferred_schemas = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
+accepted_endpoints = Table(
+    "accepted_endpoints", metadata,
+    Column("method", String(10), primary_key=True),  # "*" = any method
+    Column("path", String(512), primary_key=True),   # canonical template, {id} placeholders
+    Column("reason", Text, nullable=False, server_default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
 scan_state = Table(
     "scan_state", metadata,
     Column("method", String(10), primary_key=True),
@@ -273,3 +281,23 @@ def set_scan_state(method: str, path: str, fingerprint: str) -> None:
                                       set_={"fingerprint": fingerprint, "scanned_at": now()})
     with get_engine().begin() as c:
         c.execute(stmt, {"method": method, "path": path, "fingerprint": fingerprint, "scanned_at": now()})
+
+
+# ---- accepted (allow-listed) endpoints ---------------------------------------------------------------------------------
+
+def add_accepted(method: str, path: str, reason: str) -> None:
+    stmt = _insert(accepted_endpoints)
+    stmt = stmt.on_conflict_do_update(index_elements=["method", "path"], set_={"reason": reason})
+    with get_engine().begin() as c:
+        c.execute(stmt, {"method": method, "path": path, "reason": reason, "created_at": now()})
+
+
+def remove_accepted(method: str, path: str) -> int:
+    with get_engine().begin() as c:
+        return c.execute(delete(accepted_endpoints).where((accepted_endpoints.c.method == method) &
+                                                          (accepted_endpoints.c.path == path))).rowcount
+
+
+def list_accepted() -> list[dict]:
+    with get_engine().connect() as c:
+        return [dict(r._mapping) for r in c.execute(select(accepted_endpoints).order_by(accepted_endpoints.c.path))]

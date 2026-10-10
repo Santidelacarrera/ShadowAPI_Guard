@@ -109,8 +109,9 @@ func (d *Detector) inspect(path, authorization string) (Verdict, map[string]any)
 		got := claimString(claims[r.Claim])
 		if want := vars[r.Param]; got != want {
 			why := fmt.Sprintf("claim %q=%q does not own %s=%q", r.Claim, got, r.Param, want)
-			if r.Learned {
-				why += " (learned rule)"
+			if r.Learned { // learned params are named by segment position (p2 = third path segment)
+				why = fmt.Sprintf("claim %q=%q does not own path segment %s=%q (learned rule for %s)",
+					r.Claim, got, strings.TrimPrefix(r.Param, "p"), want, r.Template)
 			}
 			return Verdict{true, why, sub}, claims
 		}

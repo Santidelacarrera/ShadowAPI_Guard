@@ -47,9 +47,9 @@ class ClickHouse:
             base_url=settings.clickhouse_url, timeout=10, transport=transport,
             auth=(settings.clickhouse_user, settings.clickhouse_password) if settings.clickhouse_password else None)
 
-    def _post(self, query: str, content: str = "") -> httpx.Response:
+    def _post(self, query: str, content: str = "", settings_: dict | None = None) -> httpx.Response:
         try:
-            r = self._client.post("/", params={"query": query}, content=content.encode())
+            r = self._client.post("/", params={"query": query, **(settings_ or {})}, content=content.encode())
         except httpx.HTTPError as e:
             raise ClickHouseError(str(e)) from e
         if r.status_code != 200:
@@ -76,7 +76,7 @@ class ClickHouse:
             self._post(f"INSERT INTO {TABLE} FORMAT JSONEachRow", body)
 
     def query(self, sql: str) -> list[dict]:
-        r = self._post(sql + " FORMAT JSON")
+        r = self._post(sql + " FORMAT JSON", settings_={"output_format_json_quote_64bit_integers": "0"})
         return r.json().get("data", [])
 
     def stats(self) -> list[dict]:

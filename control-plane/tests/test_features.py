@@ -206,3 +206,35 @@ def test_only_new_rescans_on_schema_change(client, monkeypatch):
     assert redteam.run_scan("http://t.local", only_new=True, transport=t)["endpoints_probed"] == 0
     client.post("/events", json=[ev("GET", "/legacy/z", resp_body='{"a":1,"b":2}')])
     assert redteam.run_scan("http://t.local", only_new=True, transport=t)["endpoints_probed"] == 1
+
+
+# ---- allow-list / hardening ------------------------------------------------------------------------------------------
+
+def test_allowlist_suppresses_shadow_waf_and_notifications(client, monkeypatch):
+    client.put("/catalog/main", content=SPEC)
+    sent = []
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://hook.local")
+    monkeypatch.setattr(notify, "_sender", lambda url, payload: sent.append(payload))
+    notify.reset()
+    assert client.put("/allowlist", json={"path": "/health", "reason": "k8s probe"}).json()["path"] == "/health"
+    assert client.put("/allowlist", json={"method": "get", "path": "/jobs/42/status"}).json()["path"] == "/jobs/{id}/status"
+    assert client.put("/allowlist", json={"method": "BREW", "path": "/x"}).status_code == 422
+    client.post("/events", json=[ev("GET", "/health"), ev("GET", "/jobs/7/status"), ev("GET", "/admin/debug")])
+    d = client.get("/drift").json()
+    assert [s["path"] for s in d["shadow"]] == ["/admin/debug"] and d["summary"]["accepted"] == 2
+    assert [t for t in (p["text"] for p in sent) if "shadow" in t.lower()] == [
+        "[ShadowAPI Guard] New shadow API endpoint discovered: GET /admin/debug"]
+    monkeypatch.setenv("WAF_SHADOW_POLICY", "block")
+    blocked = {r["path"] for r in client.get("/waf/rules").json()["rules"] if r["action"] == "block"}
+    assert blocked == {"/admin/debug"}
+    assert client.delete("/allowlist", params={"path": "/health"}).json()["removed"] == 1
+    assert client.get("/drift").json()["summary"]["shadow"] == 2
+
+
+def test_input_limits_and_dashboard_csp(client):
+    assert client.post("/events", json=[ev("GET", "/" + "a" * 5000)]).status_code == 422
+    assert client.put("/catalog/x", content=b"x" * (4 * 1024 * 1024 + 1)).status_code == 413
+    r = client.get("/dashboard")
+    csp = r.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "'sha256-" in csp and "unsafe-inline" not in csp
+    assert r.headers["x-content-type-options"] == "nosniff"
