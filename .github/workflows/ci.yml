@@ -20,6 +20,16 @@ jobs:
         with: {go-version: "1.24"}
       - run: cd detector && go vet ./... && go test ./...
       - run: cargo test --workspace
+  ebpf:
+    # The eBPF object has only been type-checked locally (cargo +nightly check); this job is the first real build.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly --component rust-src
+      - run: sudo apt-get update && sudo apt-get install -y llvm clang libclang-dev
+      - run: cargo install bpf-linker
+      - run: cd probe/ebpf && cargo +nightly build --release
   e2e:
     runs-on: ubuntu-latest
     steps:

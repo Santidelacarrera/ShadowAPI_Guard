@@ -3,9 +3,9 @@
 
 use aya_ebpf::{
     helpers::{bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_probe_read_user_buf},
-    macros::{map, tracepoint},
+    macros::{map, tracepoint, uprobe},
     maps::{PerCpuArray, RingBuf},
-    programs::TracePointContext,
+    programs::{ProbeContext, TracePointContext},
 };
 use probe_common::{DataEvent, MAX_DATA};
 
@@ -36,6 +36,12 @@ fn capture(ctx: &TracePointContext, buf_off: usize, len_off: usize) -> Result<()
     // Tracepoint args for sys_enter_write/sendto: fd @16, buf @24, count/len @32.
     let buf: *const u8 = unsafe { ctx.read_at::<u64>(buf_off)? } as *const u8;
     let count: u64 = unsafe { ctx.read_at::<u64>(len_off)? };
+    emit(buf, count)
+}
+
+/// Copy the head of a user buffer into the ring buffer if it looks like an HTTP request.
+#[inline(always)]
+fn emit(buf: *const u8, count: u64) -> Result<(), i64> {
     if count < 16 {
         return Ok(());
     }
@@ -67,6 +73,19 @@ pub fn sys_enter_write(ctx: TracePointContext) -> u32 {
 #[tracepoint]
 pub fn sys_enter_sendto(ctx: TracePointContext) -> u32 {
     let _ = capture(&ctx, 24, 32);
+    0
+}
+
+/// TLS: `int SSL_write(SSL *ssl, const void *buf, int num)` runs before encryption, so the
+/// plaintext request is visible here (dynamically linked OpenSSL only).
+#[uprobe]
+pub fn ssl_write(ctx: ProbeContext) -> u32 {
+    let buf: *const u8 = match ctx.arg::<*const u8>(1) {
+        Some(b) => b,
+        None => return 0,
+    };
+    let num: u64 = ctx.arg::<i32>(2).map(|n| if n > 0 { n as u64 } else { 0 }).unwrap_or(0);
+    let _ = emit(buf, num);
     0
 }
 

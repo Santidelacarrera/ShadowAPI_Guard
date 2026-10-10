@@ -79,7 +79,7 @@ def render(fmt: str) -> tuple[str, str]:
             L.append(f'    "~^{meth} {_regex(r["path"])[1:-1]}$" $binary_remote_addr;')
         L += ["}", "limit_req_zone $shadowapi_limit_key zone=shadowapi:10m rate=30r/m;",
               "# --- inside server {} or location / {} ---", "if ($shadowapi_block) { return 403; }",
-              "limit_req zone=shadowapi burst=5 nodelay;"]
+              "limit_req_status 429;", "limit_req zone=shadowapi burst=5 nodelay;"]
         return "text/plain", "\n".join(L) + "\n"
     if fmt == "envoy":
         policies = {}

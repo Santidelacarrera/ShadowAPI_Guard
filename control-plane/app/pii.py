@@ -18,6 +18,8 @@ EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 CARD_RE = re.compile(r"(?<![\w-])(?:\d[ -]?){12,18}\d(?![\w-])")
 RUT_RE = re.compile(r"(?<![\w.-])\d{1,2}\.?\d{3}\.?\d{3}-[\dkK](?![\w-])")
 
+_KV_CUES = ("password", "passwd", "pwd", "secret", "token", "api_key", "api-key", "apikey", "authorization", "cvv", "cvc")
+_DIGITS8 = re.compile(r"\d[^\d]{0,3}\d[^\d]{0,3}\d[^\d]{0,3}\d[^\d]{0,3}\d[^\d]{0,3}\d[^\d]{0,3}\d")  # >= 7 digits
 _SENSITIVE_KEY_RE = re.compile(rf"(?i)(?:{SECRET_KEYS})")  # substring: db_password, x-api-key ...
 
 
@@ -86,13 +88,22 @@ def redact_text(text: str) -> tuple[str, Counter]:
 
         return pattern.sub(f, s)
 
-    text = sub("JWT", JWT_RE, text)
-    text = sub("BEARER", BEARER_RE, text, repl=lambda m: f"{m.group(1)} [REDACTED:TOKEN]")
-    text = sub("APIKEY", APIKEY_RE, text)
-    text = sub("SECRET", KV_RE, text, check=lambda s: "[REDACTED" not in s, repl=_kv_repl)
-    text = sub("EMAIL", EMAIL_RE, text)
-    text = _redact_cards(text, counts)
-    text = sub("RUT", RUT_RE, text, check=rut_ok)
+    # cheap cue checks avoid running every regex over every body
+    low = text.lower()
+    if "eyj" in low:
+        text = sub("JWT", JWT_RE, text)
+    if "bearer" in low or "basic" in low:
+        text = sub("BEARER", BEARER_RE, text, repl=lambda m: f"{m.group(1)} [REDACTED:TOKEN]")
+    if "_live_" in low or "_test_" in low or "akia" in low or "gh" in low:
+        text = sub("APIKEY", APIKEY_RE, text)
+    if (":" in text or "=" in text) and any(k in low for k in _KV_CUES):
+        text = sub("SECRET", KV_RE, text, check=lambda s: "[REDACTED" not in s, repl=_kv_repl)
+    if "@" in text:
+        text = sub("EMAIL", EMAIL_RE, text)
+    if _DIGITS8.search(text):
+        text = _redact_cards(text, counts)
+        if "-" in text:
+            text = sub("RUT", RUT_RE, text, check=rut_ok)
     return text, counts
 
 

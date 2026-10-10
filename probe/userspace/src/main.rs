@@ -27,6 +27,9 @@ enum Mode {
         /// Path to the compiled eBPF object (see probe/ebpf)
         #[arg(long, env = "PROBE_OBJECT", default_value = "probe/ebpf/target/bpfel-unknown-none/release/probe-ebpf")]
         object: String,
+        /// Also capture TLS plaintext by hooking SSL_write in this libssl (e.g. /usr/lib/x86_64-linux-gnu/libssl.so.3)
+        #[arg(long)]
+        libssl: Option<String>,
     },
     /// Local fallback: replay captures from a file (or `-` for stdin), one JSON line per
     /// write: {"raw": "GET /users/1 HTTP/1.1\r\nHost: x\r\n\r\n"}
@@ -55,14 +58,14 @@ fn main() -> Result<()> {
             eprintln!("replayed {n} requests");
             Ok(())
         }
-        Mode::Attach { object } => {
+        Mode::Attach { object, libssl } => {
             #[cfg(target_os = "linux")]
             {
-                attach::run(&object, &mut tx)
+                attach::run(&object, libssl.as_deref(), &mut tx)
             }
             #[cfg(not(target_os = "linux"))]
             {
-                let _ = object;
+                let _ = (object, libssl);
                 anyhow::bail!("eBPF requires Linux; use `simulate`")
             }
         }
