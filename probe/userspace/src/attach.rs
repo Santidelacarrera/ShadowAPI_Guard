@@ -21,6 +21,7 @@ pub fn run(object: &str, libssl: Option<&str>, tx: &mut Sender) -> Result<()> {
         eprintln!("TLS capture enabled via SSL_write in {lib}");
     }
     let mut ring = RingBuf::try_from(ebpf.take_map("EVENTS").context("EVENTS map missing")?)?;
+    let me = std::process::id();
     eprintln!("probe attached; capturing HTTP/1.x requests (Ctrl-C to stop)");
     loop {
         while let Some(item) = ring.next() {
@@ -29,6 +30,9 @@ pub fn run(object: &str, libssl: Option<&str>, tx: &mut Sender) -> Result<()> {
             }
             // SAFETY: DataEvent is repr(C) plain data and the length was checked above.
             let ev: DataEvent = unsafe { std::ptr::read_unaligned(item.as_ptr() as *const DataEvent) };
+            if ev.tgid == me {
+                continue; // our own uploads to the detector must not be captured again (feedback loop)
+            }
             let n = (ev.len as usize).min(ev.data.len());
             if let Some(req) = parse_request(&ev.data[..n]) {
                 tx.push(req);

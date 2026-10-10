@@ -238,3 +238,17 @@ def test_input_limits_and_dashboard_csp(client):
     csp = r.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "'sha256-" in csp and "unsafe-inline" not in csp
     assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_alert_folding_and_pruning(client):
+    bola = {"violation": True, "reason": "claim sub=1 does not own id=2"}
+    client.post("/events", json=[ev("GET", "/users/2", subject="1", bola=bola) for _ in range(5)])
+    client.post("/events", json=[ev("GET", "/users/2", subject="1", bola=bola)])
+    rows = client.get("/alerts").json()
+    assert len(rows) == 1 and rows[0]["seen_count"] == 6
+    assert db.prune(0) == {"alerts": 0, "findings": 0}
+    from datetime import timedelta
+    from sqlalchemy import update
+    with db.get_engine().begin() as c:
+        c.execute(update(db.alerts).values(last_seen=db.now() - timedelta(days=400)))
+    assert db.prune(180)["alerts"] == 1 and client.get("/alerts").json() == []

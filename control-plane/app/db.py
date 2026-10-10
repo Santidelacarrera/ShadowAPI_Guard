@@ -79,6 +79,8 @@ alerts = Table(
     Column("subject", String(128), nullable=False, default=""),
     Column("detail", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("last_seen", DateTime(timezone=True), nullable=True),
+    Column("seen_count", Integer, nullable=False, server_default="1"),
 )
 
 _engine: Engine | None = None
@@ -217,9 +219,41 @@ def list_findings(limit: int = 100, offset: int = 0) -> list[dict]:
 
 
 def add_alerts(items: list[dict]) -> None:
-    if items:
-        with get_engine().begin() as c:
-            c.execute(alerts.insert(), [{**i, "created_at": now()} for i in items])
+    """Insert alerts, folding repeats of the same (kind, method, path, subject, detail) into one row with a counter,
+    so an attacker hammering one object cannot flood the table."""
+    if not items:
+        return
+    ts = now()
+    folded: dict[tuple, dict] = {}
+    for i in items:
+        k = (i["kind"], i["method"], i["path"], i["subject"], i["detail"])
+        if k in folded:
+            folded[k]["n"] += 1
+        else:
+            folded[k] = {**i, "n": 1}
+    with get_engine().begin() as c:
+        for k, i in folded.items():
+            n = i.pop("n")
+            where = (alerts.c.kind == k[0]) & (alerts.c.method == k[1]) & (alerts.c.path == k[2]) & \
+                    (alerts.c.subject == k[3]) & (alerts.c.detail == k[4])
+            row = c.execute(select(alerts.c.id).where(where).limit(1)).first()
+            if row:
+                c.execute(update(alerts).where(alerts.c.id == row.id)
+                          .values(last_seen=ts, seen_count=alerts.c.seen_count + n))
+            else:
+                c.execute(alerts.insert(), {**i, "created_at": ts, "last_seen": ts, "seen_count": n})
+
+
+def prune(days: int) -> dict:
+    """Delete alerts and findings not seen for `days` days (0 = keep forever)."""
+    if days <= 0:
+        return {"alerts": 0, "findings": 0}
+    from datetime import timedelta
+    cutoff = now() - timedelta(days=days)
+    with get_engine().begin() as c:
+        a = c.execute(delete(alerts).where(func.coalesce(alerts.c.last_seen, alerts.c.created_at) < cutoff)).rowcount
+        f = c.execute(delete(findings).where(func.coalesce(findings.c.last_seen, findings.c.created_at) < cutoff)).rowcount
+    return {"alerts": a, "findings": f}
 
 
 def list_alerts(limit: int = 100, offset: int = 0) -> list[dict]:

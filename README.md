@@ -59,21 +59,31 @@ El e2e espera un stack recién levantado (una segunda ejecución falla porque el
 
 En compose el detector **verifica firmas** (`JWT_SECRET`, por defecto de desarrollo); las capturas de `probe/sample-traffic.ndjson` llevan tokens sin firma y se tratan como no autenticadas.
 
-Sonda eBPF real (Linux, root): `cd probe/ebpf && cargo +nightly build --release` (requiere `bpf-linker`), después
-`sudo shadowapi-probe attach --object <objeto> [--libssl /usr/lib/x86_64-linux-gnu/libssl.so.3]`.
+Sonda eBPF real (Linux, root, `tracefs` montado): `cd probe/ebpf && cargo +nightly build --release`, después
+`sudo shadowapi-probe attach --object <objeto> [--libssl /usr/lib/x86_64-linux-gnu/libssl.so.3]`. `scripts/ebpf_smoke.sh` lo comprueba de extremo a extremo.
+
+`bpf-linker` debe coincidir con el LLVM de rustc nightly. La receta que funcionó aquí (nightly con LLVM 23, sin LLVM del sistema):
+```bash
+SYS=$(rustc +nightly --print sysroot); DRV=$(ls $SYS/lib | grep -o 'rustc_driver-[0-9a-f]*' | head -1)
+LLVM=$(ls $SYS/lib | grep -o 'libLLVM-[0-9]*-rust-[^ ]*\.so' | head -1 | sed 's/^lib//; s/\.so$//')
+RUSTFLAGS="-C link-arg=-L$SYS/lib -C link-arg=-l$DRV -C link-arg=-l$LLVM -C link-arg=-Wl,-rpath,$SYS/lib" \
+  cargo +nightly install bpf-linker --no-default-features --features llvm-23,no-llvm-linking
+```
 
 ## Estado de verificación
 
 **Verificado en este entorno**
 - **Docker Compose real** (`docker compose up --build --wait`): PostgreSQL 16, **ClickHouse 24.8 real**, control plane, detector, gateway y worker Red Team arrancan sanos, y `docker compose --profile e2e run --rm e2e` pasa las 26 comprobaciones. Se comprobó contra el servidor real el DDL de ClickHouse, el TTL, las columnas nuevas y `/stats`. El perfil `sim` (sonda Rust reconstruida en Docker) alimenta el pipeline.
   - En el sandbox el proxy TLS intercepta los builds; se resolvió con un override local de compose que inyecta el CA (`pip`/`cargo`), sin tocar los Dockerfiles. Fuera de un proxy así no hace falta.
-- `pytest`: 38 tests (incluye propiedades con Hypothesis sobre el redactor) contra SQLite **y PostgreSQL 16 real**; `go test`/`go vet` (aprendizaje BOLA, JWT HS256/RS256, servidor); `cargo test --workspace`.
+- `pytest`: 42 tests (incluye propiedades con Hypothesis sobre el redactor) contra SQLite **y PostgreSQL 16 real**; `go test`/`go vet` (aprendizaje BOLA, JWT HS256/RS256, servidor); `cargo test --workspace`.
 - **Dashboard** abierto en Chromium real con la CSP activa: renderiza todas las tablas sin errores de consola.
 - Las reglas **nginx exportadas** se cargaron en un nginx 1.24 real: `nginx -t` correcto, 403 en endpoints bloqueados, 429 tras la ráfaga y el resto intacto.
 - Los tests de propiedades encontraron y corrigieron una fuga real (tarjeta seguida de otros dígitos); correr contra ClickHouse real destapó que `/stats` devolvía enteros como strings (corregido).
 
+- **Sonda eBPF real** (`scripts/ebpf_smoke.sh`, kernel 6.18 del contenedor, root): el objeto se enlaza con `bpf-linker`, **pasa el verificador del kernel**, se adjunta (tracepoints `sys_enter_write/sendto` + uprobe `SSL_write`) y reporta peticiones HTTP reales de `curl`, **incluido HTTPS en claro antes de cifrar**. El smoke test también detectó y corrigió un bucle: la sonda capturaba sus propios envíos al detector (ahora ignora su PID).
+
 **No verificado**
-- **eBPF**: `probe/ebpf` (tracepoints + uprobe TLS) pasa `cargo +nightly check`, pero `bpf-linker` no se pudo instalar: no se enlazó, no pasó el verificador del kernel y no se adjuntó nunca. `probe/userspace` en modo `attach` tampoco se ejecutó.
+- La sonda eBPF solo se probó en este kernel y con tráfico local de `curl`/Python; no hay pruebas en otros kernels, bajo carga ni con otros clientes TLS. No hay medición de su sobrecarga.
 - El workflow de GitHub Actions (nunca corrió en GitHub; el job `ebpf` está en `continue-on-error`).
 - Las exportaciones **Envoy y Kong** solo se comprueban en estructura (JSON/YAML), no cargadas en esos gateways. `deploy/k8s` solo se validó como YAML.
 - `mask_pii`, `rate_limit` y `block` por API solo se aplican de extremo a extremo en el gateway demo (nginx se verificó con su propia config exportada).
@@ -86,7 +96,7 @@ La promesa de "sin latencia" se refiere a que el análisis es pasivo y fuera de 
 
 ## Límites conocidos
 
-- La sonda ve HTTP/1.x en claro y, con `--libssl`, TLS cuando la aplicación usa OpenSSL **dinámico** (no Go/BoringSSL/rustls estáticos). Solo captura la petición: en eventos eBPF `status` es 0, por lo que el detector no aprende de ellos (el middleware sí rellena el estado). Trunca a 512 B.
+- La sonda ve HTTP/1.x en claro y, con `--libssl`, TLS cuando la aplicación usa OpenSSL **dinámico**. Lee siempre una ventana fija de 512 B del buffer de usuario: si el buffer es más corto y acaba justo antes de una página no mapeada, esa captura se pierde (no Go/BoringSSL/rustls estáticos). Solo captura la petición: en eventos eBPF `status` es 0, por lo que el detector no aprende de ellos (el middleware sí rellena el estado). Trunca a 512 B.
 - Un número de 13–19 dígitos válido por Luhn en cualquier ventana se enmascara aunque no sea una tarjeta: se prefiere sobre-redactar a filtrar.
 - La redacción es por patrones: nombres, direcciones y texto libre no se detectan.
 - Los esquemas protobuf/GraphQL no se infieren (solo protocolo y operación); la inferencia JSON es de cuerpos HTTP+JSON.

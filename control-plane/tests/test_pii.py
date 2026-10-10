@@ -46,3 +46,12 @@ def test_masking_keeps_json_valid():
 def test_compound_secret_keys():
     body, _ = redact_body('{"db_password":"hunter2","x-api-key":"abc","user":"bob"}')
     assert "hunter2" not in body and "abc" not in body and "bob" in body
+
+
+def test_phone_and_iban():
+    from app.pii import iban_ok
+    out, c = redact_text("call +56 9 8765 4321 or +1 (415) 555-2671; iban GB82 WEST 1234 5698 7654 32 ok; bad GB00 WEST 1234 5698 7654 32")
+    assert c["PHONE"] == 2 and c["IBAN"] == 1
+    assert "8765" not in out and "555-2671" not in out and "GB82" not in out and "GB00 WEST" in out
+    assert iban_ok("DE89 3704 0044 0532 0130 00") and not iban_ok("DE89 3704 0044 0532 0130 01")
+    assert redact_text("version 1+2 and 2024-01-02, id 123456")[0] == "version 1+2 and 2024-01-02, id 123456"

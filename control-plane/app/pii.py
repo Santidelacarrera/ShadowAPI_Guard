@@ -18,8 +18,11 @@ EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 CARD_RE = re.compile(r"(?<![\w-])(?:\d[ -]?){12,18}\d(?![\w-])")
 RUT_RE = re.compile(r"(?<![\w.-])\d{1,2}\.?\d{3}\.?\d{3}-[\dkK](?![\w-])")
 
+_DIGITS4 = re.compile(r"\d\d")
 _KV_CUES = ("password", "passwd", "pwd", "secret", "token", "api_key", "api-key", "apikey", "authorization", "cvv", "cvc")
 _DIGITS8 = re.compile(r"\d[^\d]{0,3}\d[^\d]{0,3}\d[^\d]{0,3}\d[^\d]{0,3}\d[^\d]{0,3}\d[^\d]{0,3}\d")  # >= 7 digits
+PHONE_RE = re.compile(r"(?<![\w+])\+\d{1,3}[ .-]?(?:\(\d{1,4}\)[ .-]?)?\d{1,4}(?:[ .-]?\d{2,4}){2,4}(?!\d)")
+IBAN_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,4})?(?![A-Za-z0-9])")
 _SENSITIVE_KEY_RE = re.compile(rf"(?i)(?:{SECRET_KEYS})")  # substring: db_password, x-api-key ...
 
 
@@ -75,6 +78,15 @@ def _redact_cards(text: str, counts: Counter) -> str:
     return CARD_RE.sub(f, text)
 
 
+def iban_ok(iban: str) -> bool:
+    """ISO 13616 mod-97 check."""
+    s = re.sub(r"\s", "", iban).upper()
+    if not 15 <= len(s) <= 34:
+        return False
+    n = "".join(str(int(ch, 36)) for ch in s[4:] + s[:4])
+    return int(n) % 97 == 1
+
+
 def redact_text(text: str) -> tuple[str, Counter]:
     """Return (redacted_text, counts_by_kind)."""
     counts: Counter = Counter()
@@ -100,6 +112,10 @@ def redact_text(text: str) -> tuple[str, Counter]:
         text = sub("SECRET", KV_RE, text, check=lambda s: "[REDACTED" not in s, repl=_kv_repl)
     if "@" in text:
         text = sub("EMAIL", EMAIL_RE, text)
+    if "+" in text:
+        text = sub("PHONE", PHONE_RE, text, check=lambda s: 8 <= len(re.sub(r"\D", "", s)) <= 15)
+    if any(ch.isupper() for ch in text) and _DIGITS4.search(text):
+        text = sub("IBAN", IBAN_RE, text, check=iban_ok)
     if _DIGITS8.search(text):
         text = _redact_cards(text, counts)
         if "-" in text:

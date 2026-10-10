@@ -61,3 +61,26 @@ def test_json_stays_valid_and_secrets_removed(secret, other):
     out, _ = redact_body(body)
     parsed = json.loads(out)  # still valid JSON
     assert secret not in out and "note" in parsed
+
+
+def make_iban(country: str, bban: str) -> str:
+    n = "".join(str(int(ch, 36)) for ch in bban + country + "00")
+    check = 98 - int(n) % 97
+    iban = f"{country}{check:02d}{bban}"
+    return " ".join(iban[i:i + 4] for i in range(0, len(iban), 4))
+
+
+@settings(max_examples=150, deadline=None)
+@given(country=st.sampled_from(["DE", "GB", "FR", "ES", "CL"]), bban=st.from_regex(r"[A-Z0-9]{14,24}", fullmatch=True))
+def test_valid_ibans_never_survive(country, bban):
+    from app.pii import iban_ok
+    iban = make_iban(country, bban)
+    assert iban_ok(iban)
+    assert iban not in redact_text(f"pay to {iban} today")[0]
+
+
+@settings(max_examples=150, deadline=None)
+@given(cc=st.integers(1, 999), rest=st.from_regex(r"[0-9]{9,11}", fullmatch=True))
+def test_international_phones_never_survive(cc, rest):
+    phone = f"+{cc} {rest[:3]} {rest[3:6]} {rest[6:]}"
+    assert phone not in redact_text(f"tel {phone}.")[0]

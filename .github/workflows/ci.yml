@@ -21,7 +21,7 @@ jobs:
       - run: cd detector && go vet ./... && go test ./...
       - run: cargo test --workspace
   ebpf:
-    # The eBPF object has only been type-checked locally (cargo +nightly check); this job is the first real build.
+    # Smoke-tested locally (scripts/ebpf_smoke.sh); GitHub runners may restrict bpf(), hence continue-on-error.
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -30,6 +30,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y llvm clang libclang-dev
       - run: cargo install bpf-linker
       - run: cd probe/ebpf && cargo +nightly build --release
+      - run: sudo -E env "PATH=$PATH" ./scripts/ebpf_smoke.sh
   e2e:
     runs-on: ubuntu-latest
     steps:

@@ -75,7 +75,7 @@ async function load() {
     table($('shadow'), [['Método', r => r.method], ['Ruta', r => code(r.path)], ['Hits', r => r.hits], ['Última vez', r => r.last_seen]], drift.shadow, 'Sin endpoints shadow 🎉');
     table($('sdrift'), [['Endpoint', r => code(r.method + ' ' + r.path + ' (' + r.direction + ')')],
       ['Campos', r => r.undocumented_fields.map(f => f.field + (f.pii.length ? ' ⚠' + f.pii.join('/') : '')).join(', ')]], drift.schema_drift, 'Sin deriva de esquema');
-    table($('alerts'), [['Tipo', r => el('span', r.kind, 'tag')], ['Ruta', r => code(r.method + ' ' + r.path)], ['Detalle', r => r.detail], ['Fecha', r => r.created_at]], alerts, 'Sin alertas');
+    table($('alerts'), [['Tipo', r => el('span', r.kind, 'tag')], ['Ruta', r => code(r.method + ' ' + r.path)], ['Detalle', r => r.detail], ['Veces', r => r.seen_count], ['Última vez', r => r.last_seen || r.created_at]], alerts, 'Sin alertas');
     table($('findings'), [['Sev.', r => el('b', r.severity, 'sev-' + r.severity)], ['Check', r => r.check], ['Ruta', r => code(r.method + ' ' + r.path)], ['Detalle', r => r.detail], ['Veces', r => r.seen_count]], findings, 'Sin hallazgos');
     table($('rules'), [['Acción', r => el('span', r.action, 'tag')], ['Método', r => r.method], ['Ruta', r => code(r.path)], ['Motivo', r => r.reason]], rules.rules, 'Sin reglas');
     table($('unused'), [['Método', r => r.method], ['Ruta', r => code(r.path)]], drift.unused, 'Todo lo documentado recibe tráfico');

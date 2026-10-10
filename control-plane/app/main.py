@@ -1,6 +1,8 @@
 """Control plane: catalog, ingest, drift, schemas, red team, WAF orchestration, dashboard."""
+import asyncio
 import base64
 import hashlib
+import logging
 import hmac
 import pathlib
 import re
@@ -24,12 +26,23 @@ def require_key(x_api_key: str = Header(default="")) -> None:
         raise HTTPException(401, "invalid or missing X-API-Key")
 
 
+async def _prune_loop() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(db.prune, settings.retention_days)
+        except Exception:
+            logging.getLogger("prune").exception("prune failed")
+        await asyncio.sleep(6 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     logging_conf.setup()
     db.init_db()
     get_clickhouse().init()
+    task = asyncio.create_task(_prune_loop())
     yield
+    task.cancel()
 
 
 app = FastAPI(title="ShadowAPI Guard Control Plane", lifespan=lifespan)
@@ -158,7 +171,8 @@ def openapi_draft(scope: str = Query("shadow", pattern="^(shadow|all)$")) -> dic
 
 @app.get("/alerts", dependencies=auth)
 def alerts(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0)) -> list[dict]:
-    return [{**a, "created_at": a["created_at"].isoformat()} for a in db.list_alerts(limit, offset)]
+    return [{**a, "created_at": a["created_at"].isoformat(), "last_seen": a["last_seen"].isoformat() if a["last_seen"] else None}
+            for a in db.list_alerts(limit, offset)]
 
 
 @app.get("/findings", dependencies=auth)

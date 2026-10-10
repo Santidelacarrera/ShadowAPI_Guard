@@ -30,6 +30,11 @@ class Settings:
         return int(_env("CLICKHOUSE_TTL_DAYS", "90"))
 
     @property
+    def retention_days(self) -> int:
+        """Alerts/findings not seen for this many days are pruned from PostgreSQL (0 = keep)."""
+        return int(_env("RETENTION_DAYS", "180"))
+
+    @property
     def api_key(self) -> str:
         """If set, every request must carry it in X-API-Key."""
         return _env("API_KEY")
