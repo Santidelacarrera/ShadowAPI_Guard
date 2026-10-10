@@ -62,7 +62,7 @@ func (s *Server) Process(in InEvent) OutEvent {
 	out := OutEvent{Ts: in.Ts, Method: in.Method, Path: in.Path, Host: in.Host, Status: in.Status,
 		ReqBody: in.ReqBody, RespBody: in.RespBody, Source: in.Source}
 	if in.Authorization != "" {
-		v := s.Detector.Inspect(in.Path, in.Authorization)
+		v := s.Detector.Check(in.Path, in.Authorization, in.Status)
 		out.Bola = OutVerdict{Violation: v.Violation, Reason: v.Reason}
 		out.Subject = v.Subject
 		// a request the application rejected was not a successful object access
@@ -76,6 +76,13 @@ func (s *Server) Process(in InEvent) OutEvent {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`{"status":"ok"}`)) })
+	mux.HandleFunc("GET /rules", func(w http.ResponseWriter, _ *http.Request) {
+		var learned []bola.Rule
+		if s.Detector.Learner != nil {
+			learned = s.Detector.Learner.Rules()
+		}
+		json.NewEncoder(w).Encode(map[string]any{"learned": learned})
+	})
 	mux.HandleFunc("POST /events", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 		var batch []InEvent

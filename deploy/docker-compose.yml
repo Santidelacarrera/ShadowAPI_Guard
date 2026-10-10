@@ -36,6 +36,8 @@ services:
       WAF_URL: http://gateway:9000
       WAF_SHADOW_POLICY: ${WAF_SHADOW_POLICY:-monitor}
       REDTEAM_ALLOWED_HOSTS: gateway
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}   # Slack-compatible incoming webhook (optional)
+      CLICKHOUSE_TTL_DAYS: ${CLICKHOUSE_TTL_DAYS:-90}
     depends_on:
       postgres: {condition: service_healthy}
       clickhouse: {condition: service_healthy}
@@ -49,6 +51,7 @@ services:
     build: ../detector
     environment:
       <<: *secrets
+      JWT_HS256_SECRET: ${JWT_SECRET:-dev-jwt-secret}
       CONTROL_PLANE_URL: http://control-plane:8000
     depends_on:
       control-plane: {condition: service_healthy}
@@ -102,6 +105,8 @@ services:
     entrypoint: ["sh", "-c", "pip install -q httpx && python scripts/e2e.py"]
     environment:
       <<: *secrets
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret}
+      DETECTOR_URL: http://detector:8081
       CONTROL_URL: http://control-plane:8000
       GATEWAY_URL: http://gateway:9000
       CLICKHOUSE_URL: http://clickhouse:8123

@@ -7,6 +7,7 @@ USERS = {
     1: {"id": 1, "name": "Ana", "email": "ana@example.cl", "rut": "12.345.678-5", "card": "4111 1111 1111 1111"},
     2: {"id": 2, "name": "Beto", "email": "beto@example.cl", "rut": "11.111.111-1", "card": "5500 0000 0000 0004"},
 }
+USERS[3] = {"id": 3, "name": "Cata", "email": "cata@example.cl", "rut": "9.999.999-3", "card": "4000 0000 0000 0002"}
 ACCOUNTS = {1: {"id": 1, "iban": "CL-1", "owner": "Ana"}, 2: {"id": 2, "iban": "CL-2", "owner": "Beto"}}
 
 
@@ -25,6 +26,11 @@ def get_user(uid: int):
 @app.get("/users/{uid}/orders")  # documented
 def orders(uid: int):
     return [{"order": 1, "user": uid}]
+
+
+@app.get("/accounts/{aid}/statements")  # documented, no ownership check either (BOLA, found by learning)
+def statements(aid: int):
+    return [{"account": aid, "month": "2024-01", "balance": 100 * aid}]
 
 
 @app.get("/admin/debug")  # NOT documented: leaks config and PII

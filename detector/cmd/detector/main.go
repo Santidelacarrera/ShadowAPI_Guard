@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/santidelacarrera/shadowapi_guard/detector/bola"
 	"github.com/santidelacarrera/shadowapi_guard/detector/internal/server"
@@ -39,10 +40,43 @@ func loadRules() []bola.Rule {
 	return rules
 }
 
+func buildDetector() *bola.Detector {
+	d := bola.New(loadRules())
+	if secret, jwks := os.Getenv("JWT_HS256_SECRET"), os.Getenv("JWKS_URL"); secret != "" || jwks != "" {
+		d.Verifier = &bola.Verifier{HS256Secret: []byte(secret), JWKSURL: jwks}
+		log.Print("JWT signature verification enabled")
+	} else {
+		log.Print("WARNING: JWT signatures are NOT verified (set JWT_HS256_SECRET or JWKS_URL)")
+	}
+	if env("BOLA_LEARN", "1") == "1" {
+		d.Learner = bola.NewLearner()
+		if f := os.Getenv("LEARN_STATE_FILE"); f != "" {
+			if err := d.Learner.Load(f); err != nil && !os.IsNotExist(err) {
+				log.Printf("load learned rules: %v", err)
+			}
+		}
+	}
+	return d
+}
+
 func main() {
-	srv := server.New(bola.New(loadRules()), env("CONTROL_PLANE_URL", "http://localhost:8000"), os.Getenv("API_KEY"))
+	det := buildDetector()
+	srv := server.New(det, env("CONTROL_PLANE_URL", "http://localhost:8000"), os.Getenv("API_KEY"))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if f := os.Getenv("LEARN_STATE_FILE"); f != "" && det.Learner != nil {
+		go func() {
+			for t := time.NewTicker(time.Minute); ; {
+				select {
+				case <-t.C:
+					det.Learner.Save(f)
+				case <-ctx.Done():
+					det.Learner.Save(f)
+					return
+				}
+			}
+		}()
+	}
 	go srv.Run(ctx)
 	addr := env("LISTEN_ADDR", ":8081")
 	hs := &http.Server{Addr: addr, Handler: srv.Handler()}

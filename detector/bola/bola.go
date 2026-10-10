@@ -16,6 +16,7 @@ type Rule struct {
 	Template string
 	Param    string
 	Claim    string
+	Learned  bool `json:",omitempty"` // true when inferred from traffic instead of configured
 }
 
 // Verdict is the outcome of inspecting one request.
@@ -26,7 +27,11 @@ type Verdict struct {
 }
 
 // Detector evaluates requests against a set of ownership rules.
-type Detector struct{ rules []Rule }
+type Detector struct {
+	rules    []Rule
+	Verifier *Verifier // optional: when set, tokens must carry a valid signature
+	Learner  *Learner  // optional: infers ownership rules from traffic
+}
 
 func New(rules []Rule) *Detector { return &Detector{rules: rules} }
 
@@ -74,20 +79,61 @@ func match(template, path string) (map[string]string, bool) {
 // Inspect returns a violation when the object referenced in path does not
 // belong to the identity carried by the JWT.
 func (d *Detector) Inspect(path, authorization string) Verdict {
-	claims, err := Claims(authorization)
+	v, _ := d.inspect(path, authorization)
+	return v
+}
+
+func (d *Detector) claims(authorization string) (map[string]any, error) {
+	if d.Verifier != nil {
+		return d.Verifier.Verify(authorization)
+	}
+	return Claims(authorization)
+}
+
+// inspect also returns the claims so callers can feed the learner without re-parsing.
+func (d *Detector) inspect(path, authorization string) (Verdict, map[string]any) {
+	claims, err := d.claims(authorization)
 	if err != nil {
-		return Verdict{Reason: "unauthenticated: " + err.Error()}
+		return Verdict{Reason: "unauthenticated: " + err.Error()}, nil
+	}
+	rules := d.rules
+	if d.Learner != nil {
+		rules = append(append([]Rule{}, d.rules...), d.Learner.Rules()...)
 	}
 	sub, _ := claims["sub"].(string)
-	for _, r := range d.rules {
+	for _, r := range rules {
 		vars, ok := match(r.Template, path)
 		if !ok {
 			continue
 		}
-		got, _ := claims[r.Claim].(string)
+		got := claimString(claims[r.Claim])
 		if want := vars[r.Param]; got != want {
-			return Verdict{true, fmt.Sprintf("claim %q=%q does not own %s=%q", r.Claim, got, r.Param, want), sub}
+			why := fmt.Sprintf("claim %q=%q does not own %s=%q", r.Claim, got, r.Param, want)
+			if r.Learned {
+				why += " (learned rule)"
+			}
+			return Verdict{true, why, sub}, claims
 		}
 	}
-	return Verdict{Subject: sub}
+	return Verdict{Subject: sub}, claims
+}
+
+func claimString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		return fmt.Sprintf("%d", int64(t))
+	}
+	return ""
+}
+
+// Check inspects a request and, when it succeeded (2xx) without violating a rule, learns from it.
+// status 0 means "unknown" (e.g. the eBPF probe sees requests only) and is treated as non-learnable.
+func (d *Detector) Check(path, authorization string, status int) Verdict {
+	v, claims := d.inspect(path, authorization)
+	if claims != nil && !v.Violation && d.Learner != nil && status >= 200 && status < 300 {
+		d.Learner.Observe(path, claims)
+	}
+	return v
 }
