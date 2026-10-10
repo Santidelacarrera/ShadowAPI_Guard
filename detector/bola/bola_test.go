@@ -27,3 +27,14 @@ func TestInspect(t *testing.T) {
 		}
 	}
 }
+
+func TestSubjectAndQueryString(t *testing.T) {
+	d := New([]Rule{{Template: "/users/{id}", Param: "id", Claim: "sub"}})
+	v := d.Inspect("/users/7?expand=1", jwt(`{"sub":"7"}`))
+	if v.Violation || v.Subject != "7" {
+		t.Fatalf("unexpected verdict %+v", v)
+	}
+	if !d.Inspect("/users/8?expand=1", jwt(`{"sub":"7"}`)).Violation {
+		t.Fatal("query string must not hide a violation")
+	}
+}

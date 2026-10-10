@@ -22,6 +22,7 @@ type Rule struct {
 type Verdict struct {
 	Violation bool
 	Reason    string
+	Subject   string // value of the "sub" claim, when present
 }
 
 // Detector evaluates requests against a set of ownership rules.
@@ -51,6 +52,9 @@ func Claims(token string) (map[string]any, error) {
 
 // match extracts template variables from path, or returns false.
 func match(template, path string) (map[string]string, bool) {
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
 	t := strings.Split(strings.Trim(template, "/"), "/")
 	p := strings.Split(strings.Trim(path, "/"), "/")
 	if len(t) != len(p) {
@@ -72,8 +76,9 @@ func match(template, path string) (map[string]string, bool) {
 func (d *Detector) Inspect(path, authorization string) Verdict {
 	claims, err := Claims(authorization)
 	if err != nil {
-		return Verdict{Violation: false, Reason: "unauthenticated: " + err.Error()}
+		return Verdict{Reason: "unauthenticated: " + err.Error()}
 	}
+	sub, _ := claims["sub"].(string)
 	for _, r := range d.rules {
 		vars, ok := match(r.Template, path)
 		if !ok {
@@ -81,8 +86,8 @@ func (d *Detector) Inspect(path, authorization string) Verdict {
 		}
 		got, _ := claims[r.Claim].(string)
 		if want := vars[r.Param]; got != want {
-			return Verdict{true, fmt.Sprintf("claim %q=%q does not own %s=%q", r.Claim, got, r.Param, want)}
+			return Verdict{true, fmt.Sprintf("claim %q=%q does not own %s=%q", r.Claim, got, r.Param, want), sub}
 		}
 	}
-	return Verdict{}
+	return Verdict{Subject: sub}
 }

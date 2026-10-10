@@ -1,4 +1,8 @@
 target/
+Cargo.lock.bak
 __pycache__/
+*.pyc
+.pytest_cache/
 .venv/
 .graph-indexer/
+*.db

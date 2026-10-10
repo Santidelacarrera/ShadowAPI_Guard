@@ -1,0 +1,30 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: {POSTGRES_PASSWORD: pg, POSTGRES_DB: shadowapi}
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -r control-plane/requirements.txt
+      - run: cd control-plane && python -m pytest -q
+        env: {TEST_DATABASE_URL: "postgresql+psycopg://postgres:pg@localhost:5432/shadowapi"}
+      - uses: actions/setup-go@v5
+        with: {go-version: "1.24"}
+      - run: cd detector && go vet ./... && go test ./...
+      - run: cargo test --workspace
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cd deploy && docker compose up -d --build --wait
+      - run: cd deploy && docker compose --profile e2e run --rm e2e
+      - if: failure()
+        run: cd deploy && docker compose logs --tail=100

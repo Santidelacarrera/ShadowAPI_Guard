@@ -1,0 +1,15 @@
+[package]
+name = "shadowapi-probe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+probe-common = { path = "../common", features = ["user"] }
+shadowapi-reconstructor = { path = "../../reconstructor" }
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = "0.13"

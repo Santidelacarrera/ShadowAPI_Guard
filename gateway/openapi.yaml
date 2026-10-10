@@ -1,0 +1,6 @@
+openapi: 3.1.0
+info: {title: Demo API, version: "1.0"}
+paths:
+  /health: {get: {responses: {"200": {description: ok}}}}
+  /users/{userId}: {get: {responses: {"200": {description: user}}}}
+  /users/{userId}/orders: {get: {responses: {"200": {description: orders}}}}

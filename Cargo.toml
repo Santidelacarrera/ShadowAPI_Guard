@@ -1,0 +1,4 @@
+[workspace]
+resolver = "2"
+members = ["reconstructor", "probe/common", "probe/userspace"]
+exclude = ["probe/ebpf"]  # built separately with nightly + bpf-linker
