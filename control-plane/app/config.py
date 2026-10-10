@@ -25,6 +25,11 @@ class Settings:
         return _env("CLICKHOUSE_PASSWORD", "")
 
     @property
+    def clickhouse_ttl_days(self) -> int:
+        """Retention for stored events (0 = keep forever)."""
+        return int(_env("CLICKHOUSE_TTL_DAYS", "90"))
+
+    @property
     def api_key(self) -> str:
         """If set, every request must carry it in X-API-Key."""
         return _env("API_KEY")

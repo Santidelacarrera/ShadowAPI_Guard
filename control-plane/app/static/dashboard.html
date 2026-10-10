@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShadowAPI Guard</title>
+<style>
+  :root { --bg:#0f1419; --card:#18202a; --fg:#e6edf3; --muted:#8b98a5; --line:#2a3542; --accent:#4cc2ff;
+          --crit:#ff5c5c; --high:#ff9f43; --med:#f7d154; --ok:#4cd68a; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f6f8fa; --card:#fff; --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --accent:#0969da; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--line); }
+  h1 { font-size:18px; margin:0; } h2 { font-size:15px; margin:0 0 10px; }
+  main { padding:16px; display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; overflow-x:auto; }
+  .kpis { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); grid-column:1/-1; }
+  .kpi b { display:block; font-size:26px; } .kpi span { color:var(--muted); }
+  table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; } code { font-family:ui-monospace, monospace; word-break:break-all; }
+  .sev-critical{color:var(--crit)} .sev-high{color:var(--high)} .sev-medium{color:var(--med)} .tag{border:1px solid var(--line);border-radius:4px;padding:0 6px;font-size:12px}
+  button, input { font:inherit; padding:6px 10px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); }
+  button { cursor:pointer; } button:hover { border-color:var(--accent); } .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 ShadowAPI Guard</h1>
+  <div>
+    <input id="key" type="password" placeholder="X-API-Key" aria-label="API key" autocomplete="off">
+    <button id="load">Cargar</button>
+    <button id="sync" title="Empuja las reglas actuales al WAF">Sincronizar WAF</button>
+    <span id="status" class="muted" role="status"></span>
+  </div>
+</header>
+<main>
+  <section class="kpis" id="kpis"></section>
+  <section class="card"><h2>Endpoints shadow (no documentados)</h2><div id="shadow"></div></section>
+  <section class="card"><h2>Deriva de esquema (campos no documentados)</h2><div id="sdrift"></div></section>
+  <section class="card"><h2>Alertas (BOLA / GraphQL)</h2><div id="alerts"></div></section>
+  <section class="card"><h2>Hallazgos del Red Team</h2><div id="findings"></div></section>
+  <section class="card"><h2>Reglas WAF</h2><div id="rules"></div></section>
+  <section class="card"><h2>Documentados sin tráfico</h2><div id="unused"></div></section>
+</main>
+<script>
+// All values come from observed traffic and are attacker-controlled: only ever use textContent.
+const $ = id => document.getElementById(id);
+const key = $('key');
+try { key.value = sessionStorage.getItem('sg_key') || ''; } catch (e) {}
+function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
+function table(target, cols, rows, empty) {
+  target.replaceChildren();
+  if (!rows.length) { target.append(el('p', empty, 'muted')); return; }
+  const t = el('table'), h = el('tr');
+  cols.forEach(c => h.append(el('th', c[0]))); t.append(h);
+  rows.forEach(r => { const tr = el('tr'); cols.forEach(c => { const td = el('td'); const v = c[1](r);
+    if (v instanceof Node) td.append(v); else td.textContent = v; tr.append(td); }); t.append(tr); });
+  target.append(t);
+}
+const code = s => el('code', s);
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'X-API-Key': key.value, ...(opts.headers || {}) } });
+  if (!r.ok) throw new Error(path + ' → ' + r.status);
+  return r.json();
+}
+async function load() {
+  $('status').textContent = 'cargando…';
+  try {
+    try { sessionStorage.setItem('sg_key', key.value); } catch (e) {}
+    const [drift, alerts, findings, rules] = await Promise.all([api('/drift'), api('/alerts?limit=50'), api('/findings?limit=50'), api('/waf/rules')]);
+    const k = $('kpis'); k.replaceChildren();
+    [['Observados', drift.summary.observed], ['Shadow', drift.summary.shadow], ['Sin tráfico', drift.summary.unused],
+     ['Deriva de esquema', drift.summary.schema_drift], ['Alertas', alerts.length], ['Hallazgos', findings.length]]
+      .forEach(([l, v]) => { const d = el('div', undefined, 'card kpi'); d.append(el('b', String(v)), el('span', l)); k.append(d); });
+    table($('shadow'), [['Método', r => r.method], ['Ruta', r => code(r.path)], ['Hits', r => r.hits], ['Última vez', r => r.last_seen]], drift.shadow, 'Sin endpoints shadow 🎉');
+    table($('sdrift'), [['Endpoint', r => code(r.method + ' ' + r.path + ' (' + r.direction + ')')],
+      ['Campos', r => r.undocumented_fields.map(f => f.field + (f.pii.length ? ' ⚠' + f.pii.join('/') : '')).join(', ')]], drift.schema_drift, 'Sin deriva de esquema');
+    table($('alerts'), [['Tipo', r => el('span', r.kind, 'tag')], ['Ruta', r => code(r.method + ' ' + r.path)], ['Detalle', r => r.detail], ['Fecha', r => r.created_at]], alerts, 'Sin alertas');
+    table($('findings'), [['Sev.', r => el('b', r.severity, 'sev-' + r.severity)], ['Check', r => r.check], ['Ruta', r => code(r.method + ' ' + r.path)], ['Detalle', r => r.detail], ['Veces', r => r.seen_count]], findings, 'Sin hallazgos');
+    table($('rules'), [['Acción', r => el('span', r.action, 'tag')], ['Método', r => r.method], ['Ruta', r => code(r.path)], ['Motivo', r => r.reason]], rules.rules, 'Sin reglas');
+    table($('unused'), [['Método', r => r.method], ['Ruta', r => code(r.path)]], drift.unused, 'Todo lo documentado recibe tráfico');
+    $('status').textContent = 'actualizado ' + new Date().toLocaleTimeString();
+  } catch (e) { $('status').textContent = 'error: ' + e.message; }
+}
+$('load').onclick = load;
+$('sync').onclick = async () => { try { const r = await api('/waf/sync', { method: 'POST' });
+  $('status').textContent = r.synced ? 'reglas ' + r.version + ' sincronizadas' : 'no sincronizado: ' + r.reason; load(); } catch (e) { $('status').textContent = 'error: ' + e.message; } };
+if (key.value) load();
+setInterval(() => { if (key.value) load(); }, 15000);
+</script>
+</body>
+</html>

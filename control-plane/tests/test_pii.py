@@ -2,9 +2,12 @@ from app.pii import redact_body, redact_text, rut_ok, luhn_ok
 
 
 def test_card_luhn_only():
-    out, c = redact_text("pay 4111 1111 1111 1111 now, order 1234 5678 9012 3456")
-    assert "4111" not in out and c["CARD"] == 1
-    assert "1234 5678 9012 3456" in out  # fails Luhn -> untouched
+    out, c = redact_text("pay 4111 1111 1111 1111 now, order 1234 5678, ref 4111 1111 1111")
+    assert out.count("[REDACTED:CARD]") == 1 and c["CARD"] == 1
+    assert "order 1234 5678" in out  # too short to be a card
+    assert "ref 4111 1111 1111" in out  # 12 digits: below the card length range
+    # over-redaction is preferred to leaks: a card glued to other digits is still found
+    assert "4111111111111111" not in redact_text("id 4111111111111111 7")[0]
 
 
 def test_rut_check_digit():

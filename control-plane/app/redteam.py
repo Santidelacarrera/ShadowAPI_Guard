@@ -1,9 +1,11 @@
 """Red Team agent: safe, authorised verification/fuzzing of drifted (shadow) endpoints."""
+import hashlib
+import json
 from urllib.parse import urlparse
 
 import httpx
 
-from . import db
+from . import db, metrics, notify
 from .catalog import compute_drift
 from .config import settings
 from .pii import scan
@@ -105,21 +107,66 @@ def scan_endpoint(c: httpx.Client, method: str, template: str, token: str = "", 
     return uniq
 
 
+def bola_test(c: httpx.Client, method: str, template: str, identities: list[dict]) -> list[dict]:
+    """Cross-identity object access: can identity X read an object that belongs to identity Y?"""
+    if "{id}" not in template or method not in SAFE_METHODS or len(identities) < 2:
+        return []
+
+    def get(ident, oid):
+        try:
+            return c.request(method, concretize(template, oid), headers={"Authorization": f"Bearer {ident['token']}"})
+        except httpx.HTTPError:
+            return None
+
+    out = []
+    for xi, x in enumerate(identities):
+        for yi, y in enumerate(identities):
+            if xi == yi:
+                continue
+            for oid in y.get("owned_ids", []):
+                base = get(y, oid)
+                if base is None or base.status_code != 200:
+                    continue
+                r = get(x, oid)
+                if r is not None and r.status_code == 200 and r.text == base.text:
+                    out.append(_f(method, template, "bola_confirmed", "critical",
+                                  f"identity #{xi + 1} read object {oid} owned by identity #{yi + 1} (HTTP 200, identical body)"))
+    return out
+
+
+def fingerprint(method: str, path: str, schemas: dict) -> str:
+    """Changes when the endpoint's observed request/response structure changes -> triggers a rescan."""
+    parts = [schemas.get((method, path, d), {}) for d in ("request", "response")]
+    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def run_scan(target: str, token: str = "", allow_unsafe: bool = False, only_new: bool = False,
-             transport: httpx.BaseTransport | None = None, scanned: set | None = None) -> dict:
+             transport: httpx.BaseTransport | None = None, scope: str = "shadow",
+             identities: list[dict] | None = None) -> dict:
     check_scope(target)
-    shadow = compute_drift()["shadow"]
+    if scope == "all":
+        endpoints = [{"method": o["method"], "path": o["path"]} for o in db.list_observed()]
+    else:
+        endpoints = compute_drift()["shadow"]
+    schemas = {(s["method"], s["path"], s["direction"]): s["schema"] for s in db.list_schemas()}
+    state = db.get_scan_state() if only_new else {}
     findings: list[dict] = []
     probed = 0
     with httpx.Client(base_url=target, timeout=5, follow_redirects=False, transport=transport,
                       headers={"X-ShadowAPI-Scan": "1"}) as c:
-        for s in shadow:
+        for s in endpoints:
             key = (s["method"], s["path"])
-            if only_new and scanned is not None and key in scanned:
+            fp = fingerprint(*key, schemas)
+            if only_new and state.get(key) == fp:
                 continue
             findings += scan_endpoint(c, s["method"], s["path"], token, allow_unsafe)
+            findings += bola_test(c, s["method"], s["path"], identities or [])
+            db.set_scan_state(*key, fp)
             probed += 1
-            if scanned is not None:
-                scanned.add(key)
-    db.add_findings(findings)
-    return {"endpoints_probed": probed, "findings": findings}
+    new = db.add_findings(findings)
+    for f in new:
+        metrics.inc("shadowapi_findings_total", severity=f["severity"])
+        if f["severity"] in ("high", "critical"):
+            notify.notify("finding", f"{f['method']} {f['path']} {f['check']}",
+                          f"{f['severity'].upper()} {f['check']} on {f['method']} {f['path']}: {f['detail']}")
+    return {"endpoints_probed": probed, "findings": findings, "new_findings": len(new)}

@@ -15,10 +15,9 @@ def main() -> None:
     interval = int(os.environ.get("REDTEAM_INTERVAL", "30"))
     token = os.environ.get("REDTEAM_TOKEN", "")
     db.init_db()
-    scanned: set = set()
     while True:
         try:
-            res = run_scan(target, token=token, only_new=True, scanned=scanned)
+            res = run_scan(target, token=token, only_new=True)
             if res["endpoints_probed"]:
                 log.info("probed %d new endpoints, %d findings", res["endpoints_probed"], len(res["findings"]))
         except ScopeError as e:

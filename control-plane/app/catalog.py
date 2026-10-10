@@ -1,14 +1,26 @@
 """OpenAPI catalog parsing and drift computation."""
+import json
+
 import yaml
 
 from . import db
 from .paths import matches, normalize_catalog_path
+from .schema import extra_fields, from_openapi_schema, resolve_refs
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 
 
-def parse_openapi(raw: bytes | str) -> list[tuple[str, str, str]]:
-    """Return (METHOD, normalized_path, raw_path) for every operation. Accepts JSON or YAML."""
+def _json_schema(content: dict | None, doc: dict) -> str | None:
+    for ctype, body in (content or {}).items():
+        if "json" in ctype and isinstance(body, dict) and "schema" in body:
+            red = from_openapi_schema(resolve_refs(body["schema"], doc))
+            return json.dumps(red) if red else None
+    return None
+
+
+def parse_openapi(raw: bytes | str) -> list[tuple]:
+    """Return (METHOD, normalized_path, raw_path, req_schema_json, resp_schema_json) for every operation.
+    Accepts JSON or YAML."""
     try:
         doc = yaml.safe_load(raw)
     except yaml.YAMLError as e:
@@ -23,8 +35,16 @@ def parse_openapi(raw: bytes | str) -> list[tuple[str, str, str]]:
         if not isinstance(item, dict):
             continue
         for m in item:
-            if m.lower() in HTTP_METHODS:
-                out.append((m.upper(), normalize_catalog_path(p), p))
+            if m.lower() in HTTP_METHODS and isinstance(item[m], dict):
+                op = item[m]
+                req = _json_schema((op.get("requestBody") or {}).get("content"), doc)
+                resp = None
+                for code, r in (op.get("responses") or {}).items():
+                    if str(code).startswith("2") and isinstance(r, dict):
+                        resp = _json_schema(r.get("content"), doc)
+                        if resp:
+                            break
+                out.append((m.upper(), normalize_catalog_path(p), p, req, resp))
     if not out:
         raise ValueError("document has no operations")
     return out
@@ -41,10 +61,34 @@ def compute_drift(min_hits: int = 1) -> dict:
     shadow = [o for o in obs if o["hits"] >= min_hits and not documented(o)]
     zombie = [c for c in cat if not any(o["method"] == c["method"] and matches(c["path"], o["path"]) for o in obs)]
     documented_seen = len(obs) - len([o for o in obs if not documented(o)])
+    schema_drift = _schema_drift(cat)
     return {
         "summary": {"catalog": len(cat), "observed": len(obs), "shadow": len(shadow), "unused": len(zombie),
-                    "documented_seen": documented_seen},
+                    "documented_seen": documented_seen, "schema_drift": len(schema_drift)},
         "shadow": [{"method": o["method"], "path": o["path"], "host": o["host"], "hits": o["hits"],
                     "first_seen": o["first_seen"].isoformat(), "last_seen": o["last_seen"].isoformat()} for o in shadow],
         "unused": [{"method": c["method"], "path": c["raw_path"]} for c in zombie],
+        "schema_drift": schema_drift,
     }
+
+
+def _schema_drift(cat: list[dict]) -> list[dict]:
+    """Fields observed in traffic but missing from the documented request/response schema."""
+    out = []
+    observed = {(s["method"], s["path"], s["direction"]): s["schema"] for s in db.list_schemas()}
+    for c in cat:
+        for direction, col in (("request", "req_schema"), ("response", "resp_schema")):
+            if not c.get(col):
+                continue
+            documented = json.loads(c[col])
+            for (m, p, d), schema in observed.items():
+                if d == direction and m == c["method"] and matches(c["path"], p):
+                    extra = extra_fields(schema, documented)
+                    if extra:
+                        out.append({"method": m, "path": c["raw_path"], "direction": d, "undocumented_fields": extra,
+                                    "pii": sorted({k for f in extra for k in f["pii"]})})
+    return out
+
+
+def is_documented(method: str, path: str) -> bool:
+    return any(c["method"] == method and matches(c["path"], path) for c in db.list_catalog())

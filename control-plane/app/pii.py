@@ -50,6 +50,29 @@ def _kv_repl(m: re.Match) -> str:
     return f"{m.group('k')}{q}[REDACTED:SECRET]{q}"
 
 
+def _redact_cards(text: str, counts: Counter) -> str:
+    """Mask Luhn-valid 13-19 digit numbers, also when glued to neighbouring digits ("4111... 0")."""
+    def f(m: re.Match) -> str:
+        chunk = m.group(0)
+        pos = [i for i, ch in enumerate(chunk) if ch.isdigit()]
+        digits = "".join(chunk[i] for i in pos)
+        out, i, last = [], 0, 0
+        while i < len(digits):
+            for ln in range(min(19, len(digits) - i), 12, -1):
+                if luhn_ok(digits[i:i + ln]):
+                    out.append(chunk[last:pos[i]])
+                    out.append("[REDACTED:CARD]")
+                    last = pos[i + ln - 1] + 1
+                    counts["CARD"] += 1
+                    i += ln
+                    break
+            else:
+                i += 1
+        return "".join(out) + chunk[last:] if out else chunk
+
+    return CARD_RE.sub(f, text)
+
+
 def redact_text(text: str) -> tuple[str, Counter]:
     """Return (redacted_text, counts_by_kind)."""
     counts: Counter = Counter()
@@ -68,7 +91,7 @@ def redact_text(text: str) -> tuple[str, Counter]:
     text = sub("APIKEY", APIKEY_RE, text)
     text = sub("SECRET", KV_RE, text, check=lambda s: "[REDACTED" not in s, repl=_kv_repl)
     text = sub("EMAIL", EMAIL_RE, text)
-    text = sub("CARD", CARD_RE, text, check=lambda s: 13 <= len(re.sub(r"\D", "", s)) <= 19 and luhn_ok(re.sub(r"\D", "", s)))
+    text = _redact_cards(text, counts)
     text = sub("RUT", RUT_RE, text, check=rut_ok)
     return text, counts
 

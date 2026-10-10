@@ -23,11 +23,18 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     subject String,
     bola UInt8,
     bola_reason String,
-    source LowCardinality(String)
+    source LowCardinality(String),
+    protocol LowCardinality(String) DEFAULT 'http',
+    operation String DEFAULT ''
 ) ENGINE = MergeTree
 PARTITION BY toYYYYMM(ts)
 ORDER BY (path_template, ts)
 """
+
+MIGRATIONS = [
+    f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS protocol LowCardinality(String) DEFAULT 'http'",
+    f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS operation String DEFAULT ''",
+]
 
 
 class ClickHouseError(RuntimeError):
@@ -53,6 +60,10 @@ class ClickHouse:
         for attempt in range(retries):
             try:
                 self._post(DDL)
+                for m in MIGRATIONS:
+                    self._post(m)
+                if settings.clickhouse_ttl_days > 0:
+                    self._post(f"ALTER TABLE {TABLE} MODIFY TTL toDateTime(ts) + INTERVAL {settings.clickhouse_ttl_days} DAY")
                 return
             except ClickHouseError:
                 if attempt == retries - 1:
