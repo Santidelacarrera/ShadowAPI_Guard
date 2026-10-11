@@ -179,6 +179,8 @@ def test_event_shape_matches_the_control_plane_schema() -> None:
     cp_app = Path(__file__).resolve().parents[2] / "control-plane"
     if not cp_app.exists():
         pytest.skip("control-plane not in the checkout")
+    # cross-package contract test: needs the control plane's own dependencies (CI installs them; see ci.yml)
+    pytest.importorskip("sqlalchemy", reason="control-plane dependencies not installed")
     sys.path.insert(0, str(cp_app))
     try:
         from app.ingest import Event  # type: ignore[import-not-found]

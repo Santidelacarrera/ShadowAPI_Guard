@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: pip install -e '.[dev]'
+      - run: pip install -e '.[dev]' -r ../control-plane/requirements.txt  # control-plane deps: contract test of the event schema
       - run: mypy --strict src/edge_gateway
       - run: pytest --cov=edge_gateway --cov-fail-under=90
   ebpf:
@@ -37,8 +37,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --component rust-src
-      - run: sudo apt-get update && sudo apt-get install -y llvm clang libclang-dev
-      - run: cargo install bpf-linker
+      - name: Install bpf-linker (linked against rustc's own LLVM, no system LLVM needed)
+        run: |
+          SYS=$(rustc +nightly --print sysroot)
+          DRV=$(ls "$SYS/lib" | grep -o 'rustc_driver-[0-9a-f]*' | head -1)
+          LLVM=$(ls "$SYS/lib" | grep -o 'libLLVM-[0-9]*-rust-[^ ]*\.so' | head -1 | sed 's/^lib//; s/\.so$//')
+          MAJOR=$(rustc +nightly -vV | sed -n 's/^LLVM version: \([0-9]*\).*/\1/p')
+          echo "rustc LLVM major: $MAJOR ($LLVM, $DRV)"
+          RUSTFLAGS="-C link-arg=-L$SYS/lib -C link-arg=-l$DRV -C link-arg=-l$LLVM -C link-arg=-Wl,-rpath,$SYS/lib" \
+            cargo +nightly install bpf-linker --no-default-features --features "llvm-$MAJOR,no-llvm-linking"
       - run: cd probe/ebpf && cargo +nightly build --release
       - run: sudo -E env "PATH=$PATH" ./scripts/ebpf_smoke.sh
   e2e:
