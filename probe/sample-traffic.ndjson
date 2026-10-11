@@ -1,0 +1,4 @@
+{"raw": "GET /users/1 HTTP/1.1\r\nHost: demo\r\nAuthorization: Bearer eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.x\r\n\r\n"}
+{"raw": "GET /users/2 HTTP/1.1\r\nHost: demo\r\nAuthorization: Bearer eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.x\r\n\r\n"}
+{"raw": "GET /internal/metrics HTTP/1.1\r\nHost: demo\r\n\r\n"}
+{"raw": "POST /v2/beta/export HTTP/1.1\r\nHost: demo\r\n\r\n{\"email\":\"x@y.cl\"}"}

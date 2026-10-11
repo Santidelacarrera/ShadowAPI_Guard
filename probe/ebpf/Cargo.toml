@@ -1,0 +1,19 @@
+[package]
+name = "probe-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+probe-common = { path = "../common" }
+aya-ebpf = "0.1"
+
+[[bin]]
+name = "probe-ebpf"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+
+[workspace]
