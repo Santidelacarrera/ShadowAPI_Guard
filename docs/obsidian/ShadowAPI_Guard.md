@@ -5,6 +5,7 @@ rol: firewall-perimetral / api-gateway-de-entrada
 repo: Santidelacarrera/ShadowAPI_Guard
 lenguaje: python (FastAPI) · go · rust
 estado: implementado-en-rama
+organizacion: "[[empresa]]"
 tags: [seguridad, gateway, waf, prompt-injection, multi-tenant, segundo-cerebro]
 ---
 
@@ -13,6 +14,7 @@ tags: [seguridad, gateway, waf, prompt-injection, multi-tenant, segundo-cerebro]
 Guardián de borde: ninguna petición llega a [[ContextRAG_Engine]] ni a [[MultiAgent_Consensus]] sin pasar por aquí.
 
 ## Conexiones
+- Pertenece a: [[empresa]] (política de seguridad y datos de la organización que este perímetro aplica).
 - Entrada: [[Nexus-Client-Portal]] (JWT o API key + cabecera obligatoria `X-Tenant`).
 - Salida (reenvío firmado, HMAC-SHA256): [[ContextRAG_Engine]] · [[MultiAgent_Consensus]].
 - Telemetría: eventos del perímetro → control plane de ShadowAPI (drift, Shadow APIs, alertas BOLA).
