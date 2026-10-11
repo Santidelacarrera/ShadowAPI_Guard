@@ -77,6 +77,7 @@ RUSTFLAGS="-C link-arg=-L$SYS/lib -C link-arg=-l$DRV -C link-arg=-l$LLVM -C link
   - En el sandbox el proxy TLS intercepta los builds; se resolvió con un override local de compose que inyecta el CA (`pip`/`cargo`), sin tocar los Dockerfiles. Fuera de un proxy así no hace falta.
 - `pytest`: 42 tests (incluye propiedades con Hypothesis sobre el redactor) contra SQLite **y PostgreSQL 16 real**; `go test`/`go vet` (aprendizaje BOLA, JWT HS256/RS256, servidor); `cargo test --workspace`.
 - **Dashboard** abierto en Chromium real con la CSP activa: renderiza todas las tablas sin errores de consola.
+- Las reglas **Kong** (3.7, modo declarativo) y **Envoy** (1.31, bootstrap mínimo + filtro RBAC exportado) se cargaron en los gateways reales: bloquean con 403 solo lo esperado, pasan el resto al upstream y Kong limita con 429. La prueba destapó un bug (las rutas regex de Kong deben empezar por `~/`), ya corregido y con test. La exportación Envoy no incluye `rate_limit` (necesita configuración de local_ratelimit/RLS).
 - Las reglas **nginx exportadas** se cargaron en un nginx 1.24 real: `nginx -t` correcto, 403 en endpoints bloqueados, 429 tras la ráfaga y el resto intacto.
 - Los tests de propiedades encontraron y corrigieron una fuga real (tarjeta seguida de otros dígitos); correr contra ClickHouse real destapó que `/stats` devolvía enteros como strings (corregido).
 
@@ -85,7 +86,7 @@ RUSTFLAGS="-C link-arg=-L$SYS/lib -C link-arg=-l$DRV -C link-arg=-l$LLVM -C link
 **No verificado**
 - La sonda eBPF solo se probó en este kernel y con tráfico local de `curl`/Python; no hay pruebas en otros kernels, bajo carga ni con otros clientes TLS. No hay medición de su sobrecarga.
 - El workflow de GitHub Actions (nunca corrió en GitHub; el job `ebpf` está en `continue-on-error`).
-- Las exportaciones **Envoy y Kong** solo se comprueban en estructura (JSON/YAML), no cargadas en esos gateways. `deploy/k8s` solo se validó como YAML.
+- `deploy/k8s` solo se validó como YAML.
 - `mask_pii`, `rate_limit` y `block` por API solo se aplican de extremo a extremo en el gateway demo (nginx se verificó con su propia config exportada).
 
 **Rendimiento medido** (`scripts/bench.py`, 4 vCPU compartidas; son microbenchmarks de user-space, **no** miden la sobrecarga del kernel ni de la aplicación)

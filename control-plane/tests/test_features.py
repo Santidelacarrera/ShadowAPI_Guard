@@ -173,6 +173,10 @@ def test_waf_exports(client, monkeypatch):
     kong = yaml.safe_load(client.get("/waf/rules", params={"format": "kong"}).text)
     names = [r["name"] for r in kong["services"][0]["routes"]]
     assert "shadowapi-default" in names and any(n.startswith("shadowapi-limit") for n in names)
+    # Kong requires regex paths to start with "~/" (found by loading the export in a real Kong 3.7)
+    for r in kong["services"][0]["routes"]:
+        for path in r["paths"]:
+            assert path == "/" or path.startswith("~/"), path
     assert client.get("/waf/rules", params={"format": "iis"}).status_code == 422
 
 

@@ -97,11 +97,11 @@ def render(fmt: str) -> tuple[str, str]:
         import yaml
         routes = []
         for i, r in enumerate(blocks):
-            routes.append({"name": f"shadowapi-block-{i}", "paths": ["~" + _regex(r["path"])], "regex_priority": 100,
+            routes.append({"name": f"shadowapi-block-{i}", "paths": ["~" + _regex(r["path"])[1:]], "regex_priority": 100,
                            **({"methods": [r["method"]]} if r["method"] != "*" else {}),
                            "plugins": [{"name": "request-termination", "config": {"status_code": 403, "message": "blocked by ShadowAPI Guard"}}]})
         for i, r in enumerate(limits):
-            routes.append({"name": f"shadowapi-limit-{i}", "paths": ["~" + _regex(r["path"])], "regex_priority": 90,
+            routes.append({"name": f"shadowapi-limit-{i}", "paths": ["~" + _regex(r["path"])[1:]], "regex_priority": 90,
                            **({"methods": [r["method"]]} if r["method"] != "*" else {}),
                            "plugins": [{"name": "rate-limiting", "config": {"minute": r.get("limit_per_minute", 30), "policy": "local"}}]})
         routes.append({"name": "shadowapi-default", "paths": ["/"]})
