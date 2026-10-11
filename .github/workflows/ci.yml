@@ -20,6 +20,16 @@ jobs:
         with: {go-version: "1.24"}
       - run: cd detector && go vet ./... && go test ./...
       - run: cargo test --workspace
+  edge-gateway:
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: edge-gateway}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e '.[dev]'
+      - run: mypy --strict src/edge_gateway
+      - run: pytest --cov=edge_gateway --cov-fail-under=90
   ebpf:
     # Smoke-tested locally (scripts/ebpf_smoke.sh); GitHub runners may restrict bpf(), hence continue-on-error.
     runs-on: ubuntu-latest

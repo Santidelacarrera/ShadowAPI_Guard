@@ -115,6 +115,43 @@ services:
     depends_on:
       gateway: {condition: service_healthy}
 
+  # --- Edge gateway (docker compose --profile edge up): authenticated, sanitised, audited entry point -----------------
+  edge-gateway:
+    profiles: [edge]
+    build: ../edge-gateway
+    environment:
+      GUARD_SIGNING_KEY: ${GUARD_SIGNING_KEY:-dev-guard-signing-key-change-me-0123456789}
+      GUARD_JWT_SECRET: ${GUARD_JWT_SECRET:-dev-jwt-secret-change-me-0123456789abcdef}
+      GUARD_ADMIN_API_KEY: ${GUARD_ADMIN_API_KEY:-dev-admin-key}
+      # tenants: sha256 of each API key (here "acme-dev-key"); scopes bound what a tenant may call
+      GUARD_TENANTS_JSON: '{"acme":{"api_keys_sha256":["7f2e6802f17f6ba210bb387707340e4fa6d03de0347ddcc5dd4ece4439694fce"],"scopes":["rag:query","consensus:run","consensus:read"],"rate_limit_per_minute":300}}'
+      GUARD_UPSTREAM_RAG: http://rag-mock:8000            # ContextRAG_Engine
+      GUARD_UPSTREAM_CONSENSUS: http://consensus-mock:8000   # MultiAgent_Consensus
+      GUARD_EVENTS_URL: http://control-plane:8000          # perimeter events feed ShadowAPI drift/alerting
+      GUARD_EVENTS_API_KEY: ${API_KEY:-dev-key}
+      GUARD_CORS_ORIGINS: ${GUARD_CORS_ORIGINS:-}
+    depends_on:
+      control-plane: {condition: service_healthy}
+      rag-mock: {condition: service_started}
+      consensus-mock: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8080/healthz')"]
+      interval: 3s
+      retries: 20
+    ports: ["127.0.0.1:8080:8080"]
+
+  # Development stand-ins for the real internal services (they verify the gateway's signature).
+  rag-mock:
+    profiles: [edge]
+    build: ../edge-gateway
+    command: ["uvicorn", "edge_gateway.mock_upstreams:rag_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    environment: {GUARD_SIGNING_KEY: "${GUARD_SIGNING_KEY:-dev-guard-signing-key-change-me-0123456789}"}
+  consensus-mock:
+    profiles: [edge]
+    build: ../edge-gateway
+    command: ["uvicorn", "edge_gateway.mock_upstreams:consensus_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    environment: {GUARD_SIGNING_KEY: "${GUARD_SIGNING_KEY:-dev-guard-signing-key-change-me-0123456789}"}
+
 volumes:
   pgdata:
   chdata:

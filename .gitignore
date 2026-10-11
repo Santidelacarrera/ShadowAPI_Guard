@@ -6,3 +6,6 @@ __pycache__/
 .venv/
 .graph-indexer/
 *.db
+.coverage
+.mypy_cache/
+*.egg-info/

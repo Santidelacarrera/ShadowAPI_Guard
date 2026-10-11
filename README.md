@@ -13,6 +13,12 @@ Motor defensivo que descubre endpoints indocumentados (Shadow APIs), reconstruye
                           WAF sync ──▶ Gateway/WAF (JSON) · nginx · Envoy · Kong
 ```
 
+## Edge gateway (`edge-gateway/`)
+
+Además del motor de observación, el repositorio incluye el **firewall perimetral / API gateway de entrada** del ecosistema "Segundo Cerebro": autentica (JWT o API key + cabecera `X-Tenant` obligatoria), detecta Shadow APIs y esquemas anómalos, bloquea inyecciones (prompt injection EN/ES, comandos, SQL, SSRF, XSS…) y reenvía a `ContextRAG_Engine` / `MultiAgent_Consensus` con un contexto de seguridad limpio y **firmado**. Sus eventos alimentan el control plane de ShadowAPI y su superficie documentada se exporta como OpenAPI (`/__guard/openapi`) para usarla como catálogo oficial. Documentación, orden de decisiones, configuración y límites: [`edge-gateway/README.md`](edge-gateway/README.md); nota para el vault de Obsidian: [`docs/obsidian/ShadowAPI_Guard.md`](docs/obsidian/ShadowAPI_Guard.md).
+
+Verificado: 332 pruebas (cobertura ≈ 96 %), `mypy --strict` limpio, humo black-box por HTTP real y dentro de Docker Compose (`--profile edge`) con el control plane, y ráfagas concurrentes sin truncados. Las pruebas encontraron y corrigieron errores reales (respuestas reenviadas truncadas por una desconexión fabricada, RST al rechazar antes de leer el cuerpo, pérdida de eventos al apagar, baneo por IP que afectaba a otros tenants).
+
 ## Componentes
 
 | Dir | Qué hace | Tecnología |
