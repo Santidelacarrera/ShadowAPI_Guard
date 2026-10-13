@@ -10,6 +10,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .threats import ThreatScanner
+
 TENANT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,62}$")
 MIN_SECRET_BYTES = 32
 
@@ -46,6 +48,8 @@ class Settings:
     max_body_bytes: int = 64 * 1024
     max_response_bytes: int = 10 * 1024 * 1024
     block_threshold: int = 7
+    profile: str = "business"  # detection profile: "business" (strict default) or "technical" (see threats.PROFILES)
+    rule_overrides: Mapping[str, int] = field(default_factory=dict)  # rule id -> severity 0..10 (0 disables the rule)
     preauth_rate_per_minute: int = 300
     probe_threshold: int = 8  # failed-auth / shadow-API attempts per window before a temporary ban
     probe_window_seconds: int = 60
@@ -83,6 +87,10 @@ class Settings:
                 raise ConfigError(f"upstream {key!r} must be an http(s) URL")
         if self.block_threshold < 1 or self.max_body_bytes < 1:
             raise ConfigError("block_threshold and max_body_bytes must be positive")
+        try:
+            ThreatScanner(self.block_threshold, profile=self.profile, overrides=self.rule_overrides)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
 
     @staticmethod
     def from_env(env: Mapping[str, str] | None = None) -> Settings:
@@ -109,6 +117,14 @@ class Settings:
         def csv(name: str) -> frozenset[str]:
             return frozenset(x.strip() for x in e.get(name, "").split(",") if x.strip())
 
+        raw_overrides = e.get("GUARD_RULE_OVERRIDES", "")
+        try:
+            overrides = json.loads(raw_overrides) if raw_overrides else {}
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"GUARD_RULE_OVERRIDES is not valid JSON: {exc}") from exc
+        if not isinstance(overrides, dict) or not all(isinstance(v, int) and not isinstance(v, bool) for v in overrides.values()):
+            raise ConfigError("GUARD_RULE_OVERRIDES must be a JSON object of rule id -> integer severity")
+
         s = Settings(
             tenants=tenants,
             upstreams={"rag": e.get("GUARD_UPSTREAM_RAG", ""), "consensus": e.get("GUARD_UPSTREAM_CONSENSUS", "")},
@@ -121,6 +137,8 @@ class Settings:
             admin_api_key=e.get("GUARD_ADMIN_API_KEY", ""),
             max_body_bytes=int(e.get("GUARD_MAX_BODY_BYTES", str(64 * 1024))),
             block_threshold=int(e.get("GUARD_BLOCK_THRESHOLD", "7")),
+            profile=e.get("GUARD_PROFILE", "business"),
+            rule_overrides={str(k): int(v) for k, v in overrides.items()},
             preauth_rate_per_minute=int(e.get("GUARD_PREAUTH_RATE_PER_MINUTE", "300")),
             probe_threshold=int(e.get("GUARD_PROBE_THRESHOLD", "8")),
             probe_window_seconds=int(e.get("GUARD_PROBE_WINDOW_SECONDS", "60")),

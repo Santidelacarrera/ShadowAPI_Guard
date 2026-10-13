@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 
@@ -50,10 +51,8 @@ class EventForwarder:
     async def stop(self) -> None:
         if self._task is not None:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         await self.flush()  # at-least-once on shutdown: includes the batch that was being assembled/sent
         if self._owns_client and self._client is not None:
             await self._client.aclose()
@@ -82,7 +81,8 @@ class EventForwarder:
             self.dropped += len(batch)
 
     async def _run(self) -> None:
-        assert self._queue is not None
+        if self._queue is None:
+            raise RuntimeError("EventForwarder.start() must be awaited before the worker runs")
         while True:
             self._inflight = [await self._queue.get()]
             await asyncio.sleep(0.2)

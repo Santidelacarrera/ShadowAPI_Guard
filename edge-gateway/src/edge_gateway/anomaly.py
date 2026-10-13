@@ -28,6 +28,9 @@ class Limits:
     max_int_digits: int = 18
 
 
+DEFAULT_LIMITS = Limits()  # frozen: safe to share as a default argument
+
+
 def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
     seen: dict[str, object] = {}
     for k, v in pairs:
@@ -41,13 +44,13 @@ def _reject_constant(name: str) -> object:
     raise PayloadError("invalid_number", f"{name} is not allowed")
 
 
-def _parse_int(text: str, limits: Limits = Limits()) -> int:
+def _parse_int(text: str, limits: Limits = DEFAULT_LIMITS) -> int:
     if len(text.lstrip("-")) > limits.max_int_digits:
         raise PayloadError("integer_too_large")
     return int(text)
 
 
-def parse_json(body: bytes, limits: Limits = Limits()) -> object:
+def parse_json(body: bytes, limits: Limits = DEFAULT_LIMITS) -> object:
     """Strict, bounded JSON parsing: UTF-8 only, no duplicate keys, no NaN/Infinity, no huge integers."""
     try:
         text = body.decode("utf-8")
@@ -72,7 +75,7 @@ def parse_json(body: bytes, limits: Limits = Limits()) -> object:
     return value
 
 
-def check_structure(value: object, limits: Limits = Limits()) -> None:
+def check_structure(value: object, limits: Limits = DEFAULT_LIMITS) -> None:
     stack: list[tuple[object, int]] = [(value, 1)]
     nodes = keys = 0
     while stack:

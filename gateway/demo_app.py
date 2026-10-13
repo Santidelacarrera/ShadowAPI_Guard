@@ -35,7 +35,8 @@ def statements(aid: int):
 
 @app.get("/admin/debug")  # NOT documented: leaks config and PII
 def debug():
-    return {"env": "prod", "db_password": "hunter2", "support": "ops@example.cl", "sample_card": "4111111111111111"}
+    # bandit B105 accepted: deliberately vulnerable demo data
+    return {"env": "prod", "db_password": "hunter2", "support": "ops@example.cl", "sample_card": "4111111111111111"}  # nosec B105
 
 
 @app.get("/legacy/accounts/{aid}")  # NOT documented: leaks other users' data, fragile

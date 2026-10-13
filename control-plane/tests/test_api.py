@@ -131,3 +131,9 @@ def test_noise_does_not_create_shadow_endpoints(client):
         ev("GET", "/a/' OR '1'='1"), ev("GET", "/zap", source="redteam"), ev("GET", "/real", status=401)])
     assert r.json()["not_counted_for_drift"] == 4
     assert [s["path"] for s in client.get("/drift").json()["shadow"]] == ["/real"]
+
+
+def test_stats_sql_targets_the_events_table():
+    """STATS_SQL is a literal (no interpolation); it must keep naming the table the inserts use."""
+    from app.clickhouse import STATS_SQL, TABLE
+    assert f"FROM {TABLE} " in STATS_SQL

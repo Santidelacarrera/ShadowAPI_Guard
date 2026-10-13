@@ -3,8 +3,9 @@ import json
 import re
 from typing import Any
 
-MARKER_FORMATS = {"EMAIL": "email", "CARD": "card", "RUT": "rut", "JWT": "jwt", "BEARER": "token", "APIKEY": "apikey",
-                  "SECRET": "secret"}
+MARKER_FORMATS = {"EMAIL": "email", "CARD": "card", "RUT": "rut", "JWT": "jwt", "BEARER": "token", "APIKEY": "apikey"}
+# bandit B105 accepted: "secret" labels a redaction kind, it is not a credential
+MARKER_FORMATS["SECRET"] = "secret"  # nosec B105
 _MARKER = re.compile(r"^\[REDACTED:([A-Z]+)\]$")
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?")
