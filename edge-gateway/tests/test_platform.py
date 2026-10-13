@@ -14,7 +14,6 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import ADMIN_KEY, ACME_KEY, RAG_BODY, SIGNING_KEY, Gateway, HostRouter, bearer, make_settings
 from edge_gateway.anomaly import Limits, PayloadError, ProbeTracker, SizeBaseline, parse_json
 from edge_gateway.app import create_app
 from edge_gateway.audit import AuditEvent, AuditLog, safe_path
@@ -22,6 +21,8 @@ from edge_gateway.breaker import CircuitBreaker
 from edge_gateway.events import EventForwarder
 from edge_gateway.ratelimit import RateLimiter
 from edge_gateway.settings import ConfigError, Settings, TenantConfig, hash_api_key
+
+from conftest import ADMIN_KEY, RAG_BODY, Gateway, HostRouter, bearer, make_settings
 
 URL = "/v1/rag/query"
 
@@ -247,7 +248,8 @@ def test_size_baseline_ignores_outliers_when_learning() -> None:
 def test_circuit_breaker_half_open() -> None:
     now = [0.0]
     cb = CircuitBreaker(2, 10, clock=lambda: now[0])
-    cb.failure(); cb.failure()
+    cb.failure()
+    cb.failure()
     assert not cb.allow()
     now[0] += 11
     assert cb.allow()
@@ -276,3 +278,35 @@ def test_openapi_document_matches_the_documented_surface(gw: Gateway) -> None:
     schema = rag["requestBody"]["content"]["application/json"]["schema"]
     assert schema["additionalProperties"] is False and "query" in schema["properties"]  # unknown fields are anomalies
     assert doc["paths"]["/v1/consensus/runs/{run_id}"]["get"]["parameters"][0]["name"] == "run_id"
+
+
+# ---- entry point: loopback by default ------------------------------------------------------------------------------
+
+def _run_main(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> dict[str, Any]:
+    import edge_gateway.__main__ as entry
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(entry.uvicorn, "run", lambda app, **kw: captured.update(kw))
+    monkeypatch.setattr(entry.Settings, "from_env", staticmethod(lambda: make_settings()))
+    monkeypatch.delenv("GUARD_BIND_HOST", raising=False)
+    monkeypatch.delenv("GUARD_PORT", raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    entry.main()
+    return captured
+
+
+def test_gateway_binds_to_loopback_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    kw = _run_main(monkeypatch, {})
+    assert kw["host"] == "127.0.0.1" and kw["port"] == 8080
+    assert kw["proxy_headers"] is False and kw["server_header"] is False
+
+
+def test_bind_host_and_port_are_explicit_opt_ins(monkeypatch: pytest.MonkeyPatch) -> None:
+    # bandit B104 accepted: asserting the opt-in path
+    kw = _run_main(monkeypatch, {"GUARD_BIND_HOST": "0.0.0.0", "GUARD_PORT": "9090"})  # nosec B104
+    assert kw["host"] == "0.0.0.0" and kw["port"] == 9090  # nosec B104
+
+
+def test_container_image_sets_the_bind_host_explicitly() -> None:
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    assert "GUARD_BIND_HOST=0.0.0.0" in dockerfile

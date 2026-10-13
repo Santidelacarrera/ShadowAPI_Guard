@@ -1,0 +1,10 @@
+# bandit configuration. Run from the repository root:
+#   bandit -c .bandit -r edge-gateway/src control-plane/app gateway scripts
+# Exit status is non-zero for any finding (all severities): every accepted false positive carries an inline
+# `# nosec <id> - <reason>` so the justification lives next to the code.
+exclude_dirs:
+  - tests
+  - .git
+  - target
+  - probe
+  - __pycache__

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hmac
 from collections.abc import AsyncIterator
-from typing import Any
 from contextlib import asynccontextmanager
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
@@ -41,7 +41,7 @@ def create_app(
     deps = Deps(
         settings=settings,
         routes=routes or default_routes(),
-        scanner=ThreatScanner(settings.block_threshold),
+        scanner=ThreatScanner(settings.block_threshold, profile=settings.profile, overrides=settings.rule_overrides),
         limiter=RateLimiter(),
         preauth=RateLimiter(),
         probes=ProbeTracker(settings.probe_threshold, settings.probe_window_seconds, settings.ban_seconds),
@@ -89,6 +89,12 @@ def create_app(
         admin(x_admin_key)
         return [{"name": r.name, "method": r.method, "path": r.template, "upstream": r.upstream, "scope": r.scope}
                 for r in deps.routes.routes]
+
+    @api.get("/__guard/rules")
+    async def detection_rules(x_admin_key: str = Header(default="")) -> dict[str, Any]:
+        admin(x_admin_key)
+        return {"profile": settings.profile, "block_threshold": settings.block_threshold,
+                "overrides": dict(settings.rule_overrides), "rules": deps.scanner.effective_rules()}
 
     @api.get("/__guard/openapi")
     async def openapi_document(x_admin_key: str = Header(default="")) -> dict[str, Any]:

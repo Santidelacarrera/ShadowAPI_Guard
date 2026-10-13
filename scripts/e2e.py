@@ -112,8 +112,12 @@ if CH:
 
 # 6. red team on drifted endpoints
 if "REDTEAM_ALLOWED_HOSTS" in os.environ or TARGET:
-    res = cp.post("/redteam/scan", json={"target": TARGET, "identities": [
-        {"token": "id-a", "owned_ids": ["1"]}, {"token": "id-b", "owned_ids": ["2"]}]}).json()
+    # bandit B105 accepted: synthetic placeholders, not credentials
+    identities = [
+        {"token": "id-a", "owned_ids": ["1"]},  # nosec B105
+        {"token": "id-b", "owned_ids": ["2"]},  # nosec B105
+    ]
+    res = cp.post("/redteam/scan", json={"target": TARGET, "identities": identities}).json()
     found = {(f["path"], f["check"]) for f in res["findings"]}
     check(("/admin/debug", "unauthenticated_access") in found, "red team: /admin/debug reachable without credentials")
     check(("/admin/debug", "pii_exposure") in found, "red team: PII exposure on /admin/debug")

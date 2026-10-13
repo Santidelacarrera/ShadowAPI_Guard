@@ -30,8 +30,10 @@ def build_openapi(routes: RouteTable) -> dict[str, Any]:
         }
         params = [seg[1:-1] for seg in r.segments if seg.startswith("{")]
         if params:
-            op["parameters"] = [{"name": p, "in": "path", "required": True, "schema": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}}
-                                for p in params]
+            op["parameters"] = [
+                {"name": p, "in": "path", "required": True, "schema": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}}
+                for p in params
+            ]
         if r.body_model is not None:
             op["requestBody"] = {"required": True, "content": {"application/json": {"schema": r.body_model.model_json_schema()}}}
         paths.setdefault(r.template, {})[r.method.lower()] = op

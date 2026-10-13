@@ -37,6 +37,13 @@ MIGRATIONS = [
 ]
 
 
+# Literal on purpose (no string building): keep the table name in sync with TABLE; tests/test_api.py asserts it.
+STATS_SQL = (
+    "SELECT path_template, method, count() AS requests, countIf(bola = 1) AS bola_events, "
+    "sum(pii_count) AS pii_redactions FROM api_events GROUP BY path_template, method ORDER BY requests DESC LIMIT 200"
+)
+
+
 class ClickHouseError(RuntimeError):
     pass
 
@@ -80,9 +87,7 @@ class ClickHouse:
         return r.json().get("data", [])
 
     def stats(self) -> list[dict]:
-        return self.query(
-            f"SELECT path_template, method, count() AS requests, countIf(bola = 1) AS bola_events, "
-            f"sum(pii_count) AS pii_redactions FROM {TABLE} GROUP BY path_template, method ORDER BY requests DESC LIMIT 200")
+        return self.query(STATS_SQL)
 
 
 _instance: ClickHouse | None = None

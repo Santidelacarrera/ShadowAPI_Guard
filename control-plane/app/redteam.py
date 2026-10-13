@@ -36,7 +36,8 @@ def _f(method, path, check, severity, detail) -> dict:
     return {"method": method, "path": path, "check": check, "severity": severity, "detail": detail}
 
 
-def scan_endpoint(c: httpx.Client, method: str, template: str, token: str = "", allow_unsafe: bool = False) -> list[dict]:
+# bandit B107 accepted: empty = "no token"
+def scan_endpoint(c: httpx.Client, method: str, template: str, token: str = "", allow_unsafe: bool = False) -> list[dict]:  # nosec B107
     out: list[dict] = []
     auth = {"Authorization": f"Bearer {token}"} if token else {}
     url = concretize(template)
@@ -140,7 +141,8 @@ def fingerprint(method: str, path: str, schemas: dict) -> str:
     return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def run_scan(target: str, token: str = "", allow_unsafe: bool = False, only_new: bool = False,
+# bandit B107 accepted: empty = "no token"
+def run_scan(target: str, token: str = "", allow_unsafe: bool = False, only_new: bool = False,  # nosec B107
              transport: httpx.BaseTransport | None = None, scope: str = "shadow",
              identities: list[dict] | None = None) -> dict:
     check_scope(target)

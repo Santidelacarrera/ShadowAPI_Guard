@@ -16,11 +16,11 @@ Decision order (cheapest and least-informative first):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import ipaddress
-import json
-from collections.abc import Awaitable, Callable, MutableMapping
-from dataclasses import dataclass
+from collections.abc import MutableMapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
@@ -30,7 +30,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .anomaly import Limits, PayloadError, ProbeTracker, SizeBaseline, parse_json
 from .audit import AuditEvent, AuditLog, EventType, safe_path
-from .auth import AuthError, Principal, authenticate
+from .auth import AuthError, authenticate
 from .metrics import Metrics
 from .proxy import GuardContext, new_request_id, new_trace_id
 from .ratelimit import RateLimiter
@@ -57,7 +57,7 @@ class Deps:
     baseline: SizeBaseline
     audit: AuditLog
     metrics: Metrics
-    limits: Limits = Limits()
+    limits: Limits = field(default_factory=Limits)
 
 
 class _Deny(Exception):
@@ -331,7 +331,5 @@ class PerimeterMiddleware:
                 if not msg.get("more_body", False) or total > DRAIN_LIMIT_BYTES:
                     return
 
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(consume(), DRAIN_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            pass
