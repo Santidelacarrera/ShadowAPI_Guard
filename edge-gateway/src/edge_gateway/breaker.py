@@ -15,11 +15,8 @@ class CircuitBreaker:
         self._opened_at: float | None = None
 
     def allow(self) -> bool:
-        if self._opened_at is None:
-            return True
-        if self._clock() - self._opened_at >= self._reset:
-            return True  # half-open: let one probe through
-        return False
+        # closed, or open long enough to let one probe through (half-open)
+        return self._opened_at is None or self._clock() - self._opened_at >= self._reset
 
     def success(self) -> None:
         self._count = 0

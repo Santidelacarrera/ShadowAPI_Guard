@@ -7,7 +7,8 @@ JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-
 BEARER_RE = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
 APIKEY_RE = re.compile(r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{8,}\b|\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{20,}\b")
 # key=value / "key": "value" for secret-looking keys
-SECRET_KEYS = r"password|passwd|pwd|secret|token|api[_-]?key|apikey|authorization|access[_-]?token|refresh[_-]?token|cvv|cvc"
+# bandit B105 accepted: key *names* to redact, not a credential
+SECRET_KEYS = r"password|passwd|pwd|secret|token|api[_-]?key|apikey|authorization|access[_-]?token|refresh[_-]?token|cvv|cvc"  # nosec B105
 KV_RE = re.compile(
     rf"""(?ix)
     (?P<k>["']?(?:{SECRET_KEYS})["']?\s*[:=]\s*)

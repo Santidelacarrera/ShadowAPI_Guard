@@ -1,5 +1,7 @@
 # ShadowAPI Guard
 
+Producto de **Nexus Security & AI Lab**.
+
 Motor defensivo que descubre endpoints indocumentados (Shadow APIs), reconstruye su especificación, detecta BOLA/IDOR, redacta PII antes de almacenar, verifica los endpoints con deriva y sincroniza reglas con un WAF/gateway.
 
 ```
@@ -17,7 +19,7 @@ Motor defensivo que descubre endpoints indocumentados (Shadow APIs), reconstruye
 
 Además del motor de observación, el repositorio incluye el **firewall perimetral / API gateway de entrada** del ecosistema "Segundo Cerebro": autentica (JWT o API key + cabecera `X-Tenant` obligatoria), detecta Shadow APIs y esquemas anómalos, bloquea inyecciones (prompt injection EN/ES, comandos, SQL, SSRF, XSS…) y reenvía a `ContextRAG_Engine` / `MultiAgent_Consensus` con un contexto de seguridad limpio y **firmado**. Sus eventos alimentan el control plane de ShadowAPI y su superficie documentada se exporta como OpenAPI (`/__guard/openapi`) para usarla como catálogo oficial. Documentación, orden de decisiones, configuración y límites: [`edge-gateway/README.md`](edge-gateway/README.md); nota para el vault de Obsidian: [`docs/obsidian/ShadowAPI_Guard.md`](docs/obsidian/ShadowAPI_Guard.md).
 
-Verificado: 332 pruebas (cobertura ≈ 96 %), `mypy --strict` limpio, humo black-box por HTTP real y dentro de Docker Compose (`--profile edge`) con el control plane, y ráfagas concurrentes sin truncados. Las pruebas encontraron y corrigieron errores reales (respuestas reenviadas truncadas por una desconexión fabricada, RST al rechazar antes de leer el cuerpo, pérdida de eventos al apagar, baneo por IP que afectaba a otros tenants).
+Verificado: 945 pruebas del gateway (incluye reglas de detección con tráfico sintético y pruebas de no bloqueo de tráfico legítimo: 0 bloqueos sobre 3000 solicitudes legítimas generadas + 95 curadas, perfil `business`; informe en [`edge-gateway/docs/DETECTION_REPORT.md`](edge-gateway/docs/DETECTION_REPORT.md)), `mypy --strict`, `ruff` y `bandit` limpios, humo black-box por HTTP real y dentro de Docker Compose (`--profile edge`) con el control plane, y ráfagas concurrentes sin truncados. Las pruebas encontraron y corrigieron errores reales (respuestas reenviadas truncadas por una desconexión fabricada, RST al rechazar antes de leer el cuerpo, pérdida de eventos al apagar, baneo por IP que afectaba a otros tenants).
 
 ## Componentes
 
@@ -81,7 +83,7 @@ RUSTFLAGS="-C link-arg=-L$SYS/lib -C link-arg=-l$DRV -C link-arg=-l$LLVM -C link
 **Verificado en este entorno**
 - **Docker Compose real** (`docker compose up --build --wait`): PostgreSQL 16, **ClickHouse 24.8 real**, control plane, detector, gateway y worker Red Team arrancan sanos, y `docker compose --profile e2e run --rm e2e` pasa las 26 comprobaciones. Se comprobó contra el servidor real el DDL de ClickHouse, el TTL, las columnas nuevas y `/stats`. El perfil `sim` (sonda Rust reconstruida en Docker) alimenta el pipeline.
   - En el sandbox el proxy TLS intercepta los builds; se resolvió con un override local de compose que inyecta el CA (`pip`/`cargo`), sin tocar los Dockerfiles. Fuera de un proxy así no hace falta.
-- `pytest`: 42 tests (incluye propiedades con Hypothesis sobre el redactor) contra SQLite **y PostgreSQL 16 real**; `go test`/`go vet` (aprendizaje BOLA, JWT HS256/RS256, servidor); `cargo test --workspace`.
+- `pytest`: 43 tests (incluye propiedades con Hypothesis sobre el redactor) contra SQLite **y PostgreSQL 16 real**; `go test`/`go vet` (aprendizaje BOLA, JWT HS256/RS256, servidor); `cargo test --workspace`.
 - **Dashboard** abierto en Chromium real con la CSP activa: renderiza todas las tablas sin errores de consola.
 - Las reglas **Kong** (3.7, modo declarativo) y **Envoy** (1.31, bootstrap mínimo + filtro RBAC exportado) se cargaron en los gateways reales: bloquean con 403 solo lo esperado, pasan el resto al upstream y Kong limita con 429. La prueba destapó un bug (las rutas regex de Kong deben empezar por `~/`), ya corregido y con test. La exportación Envoy no incluye `rate_limit` (necesita configuración de local_ratelimit/RLS).
 - Las reglas **nginx exportadas** se cargaron en un nginx 1.24 real: `nginx -t` correcto, 403 en endpoints bloqueados, 429 tras la ráfaga y el resto intacto.
@@ -102,6 +104,8 @@ RUSTFLAGS="-C link-arg=-L$SYS/lib -C link-arg=-l$DRV -C link-arg=-l$LLVM -C link
 La promesa de "sin latencia" se refiere a que el análisis es pasivo y fuera de la ruta de la aplicación; no hay una medición de ello en este repositorio.
 
 ## Límites conocidos
+
+- Detección del edge gateway: heurística; no detecta algunas paráfrasis de prompt injection (p. ej. «Ignore your prior guidance…», «Disregard everything above…», «No sigas tus instrucciones anteriores…») y la política de precisión prioriza no bloquear tráfico legítimo. Detalle en `edge-gateway/README.md`.
 
 - La sonda ve HTTP/1.x en claro y, con `--libssl`, TLS cuando la aplicación usa OpenSSL **dinámico**. Lee siempre una ventana fija de 512 B del buffer de usuario: si el buffer es más corto y acaba justo antes de una página no mapeada, esa captura se pierde (no Go/BoringSSL/rustls estáticos). Solo captura la petición: en eventos eBPF `status` es 0, por lo que el detector no aprende de ellos (el middleware sí rellena el estado). Trunca a 512 B.
 - Un número de 13–19 dígitos válido por Luhn en cualquier ventana se enmascara aunque no sea una tarjeta: se prefiere sobre-redactar a filtrar.

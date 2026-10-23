@@ -9,8 +9,9 @@ from typing import Any
 import httpx
 import pytest
 
-from conftest import ACME_KEY, RAG_BODY, SIGNING_KEY, Gateway, bearer, make_token
 from edge_gateway import signing
+
+from conftest import ACME_KEY, RAG_BODY, SIGNING_KEY, Gateway, bearer, make_token
 
 URL = "/v1/rag/query"
 
@@ -92,7 +93,7 @@ def test_body_is_forwarded_unmodified(gw: Gateway) -> None:
 
 
 def test_flagged_requests_are_forwarded_with_marked_verdict(gw: Gateway) -> None:
-    r = gw.client.post(URL, json={"query": "hel​lo there, what is the policy?"}, headers=bearer())
+    r = gw.client.post(URL, json={"query": "hel\u200blo there, what is the policy?"}, headers=bearer())
     assert r.status_code == 200
     assert upstream_seen(gw)["headers"]["x-guard-verdict"] == "flagged"
     assert gw.events("flagged")
@@ -222,8 +223,9 @@ def test_cors_preflight_for_unknown_origin_is_denied(make_gw: Callable[..., Gate
 # ---- rate limiting ----------------------------------------------------------------------------------------------------
 
 def test_per_tenant_rate_limit_isolated_between_tenants(make_gw: Callable[..., Gateway]) -> None:
-    from conftest import ALL_SCOPES, GLOBEX_KEY
     from edge_gateway.settings import TenantConfig, hash_api_key
+
+    from conftest import ALL_SCOPES, GLOBEX_KEY
     gw = make_gw(tenants={"acme": TenantConfig(frozenset({hash_api_key(ACME_KEY)}), ALL_SCOPES, 5),
                           "globex": TenantConfig(frozenset({hash_api_key(GLOBEX_KEY)}), ALL_SCOPES, 5)})
     codes = [gw.client.post(URL, json=RAG_BODY, headers=bearer()).status_code for _ in range(8)]
