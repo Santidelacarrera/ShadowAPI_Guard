@@ -12,7 +12,8 @@ from app.pii import redact_body  # noqa: E402
 BODY = json.dumps({"id": 42, "name": "Ana Pérez", "email": "ana@example.cl", "rut": "12.345.678-5",
                    "card": "4111 1111 1111 1111", "address": {"street": "Av. Siempre Viva 742", "city": "Santiago"},
                    "orders": [{"id": i, "sku": f"SKU-{i}", "total": i * 10.5, "note": "entrega en portería"} for i in range(8)],
-                   "token": "abc123abc123", "history": "x" * 600})
+                   # bandit B105 accepted: synthetic benchmark data
+                   "token": "abc123abc123", "history": "x" * 600})  # nosec B105
 
 
 def bench(fn, n):

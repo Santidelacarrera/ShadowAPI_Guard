@@ -36,3 +36,24 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "PLE", "RUF"]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # intentional non-ASCII: the detector's homoglyph/zero-width handling and Spanish text
+    "RUF012",                      # class-level mutable defaults are not used on shared state here
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501", "B011", "SIM117", "RUF059"]
+"scripts/*" = ["E501"]
+"src/edge_gateway/threats.py" = ["E501"]  # one regular expression per line is easier to review than wrapped ones
+
+[tool.ruff.lint.isort]
+known-first-party = ["edge_gateway"]
+known-local-folder = ["conftest", "detection_eval", "synthetic_traffic"]
